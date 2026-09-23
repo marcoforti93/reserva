@@ -5,7 +5,9 @@
 // credenciais do seu projeto Firebase.
 // ============================================================
 
-import { initializeApp } from 'firebase/app';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
 
 /**
