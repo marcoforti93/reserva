@@ -5,9 +5,8 @@
 // credenciais do seu projeto Firebase.
 // ============================================================
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import { initializeApp } from 'firebase/app';
+
 
 /**
  * ⚠️ IMPORTANTE: Substitua os valores abaixo com as credenciais
@@ -18,12 +17,12 @@ import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-aut
  * 4. Na seção "Seus apps", copie a configuração do SDK
  */
 const firebaseConfig = {
-    apiKey: "SUA_API_KEY_AQUI",
-    authDomain: "SEU_PROJETO.firebaseapp.com",
-    projectId: "SEU_PROJECT_ID",
-    storageBucket: "SEU_PROJETO.appspot.com",
-    messagingSenderId: "SEU_SENDER_ID",
-    appId: "SEU_APP_ID"
+    apiKey: "AIzaSyCaXOPwCdWAPwhZa3nRGvupJjPOaciU47k",
+    authDomain: "reserva-labs-etec.firebaseapp.com",
+    projectId: "reserva-labs-etec",
+    storageBucket: "reserva-labs-etec.firebasestorage.app",
+    messagingSenderId: "119831259870",
+    appId: "1:119831259870:web:7cea43c72a7200f21ff04f"
 };
 
 // Inicializa o Firebase App
