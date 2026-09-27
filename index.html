@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="Sistema de Reservas de Laboratórios de Informática - ETEC Dr. Domingos Minicucci Filho - Unidade: 051">
+    <meta name="description"
+        content="Sistema de Reservas de Laboratórios de Informática - ETEC Dr. Domingos Minicucci Filho - Unidade: 051">
     <meta name="theme-color" content="#1B3A5C">
     <title>Sistema de Reservas - Labs Informática - ETEC DMF</title>
 
@@ -29,8 +31,10 @@
     <link rel="stylesheet" href="css/custom.css">
 
     <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
 </head>
+
 <body class="bg-gray-50 min-h-screen flex flex-col">
 
     <!-- ========================================
@@ -40,7 +44,8 @@
         <div class="login-card rounded-2xl p-8 sm:p-10 w-full max-w-md animate-scaleIn relative z-10">
             <!-- Logo / Title -->
             <div class="text-center mb-8">
-                <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white text-3xl mb-4 shadow-lg shadow-indigo-500/30">
+                <div
+                    class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white text-3xl mb-4 shadow-lg shadow-indigo-500/30">
                     🖥️
                 </div>
                 <h1 class="text-xl font-bold text-gray-900 leading-tight">
@@ -54,44 +59,114 @@
                 </p>
             </div>
 
+            <!-- Alerta para protocolo file:// -->
+            <div id="file-protocol-warning"
+                class="hidden mb-4 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs">
+                <div class="flex items-start gap-2.5">
+                    <span class="text-lg flex-shrink-0">⚠️</span>
+                    <div>
+                        <strong class="font-bold block mb-1">Aviso: Aberto como arquivo direto (file://)</strong>
+                        <p class="leading-relaxed text-amber-800">Navegadores bloqueiam requisições de rede e módulos
+                            JavaScript ao abrir clicando duas vezes no arquivo HTML.</p>
+                        <p class="mt-2 font-medium text-amber-900">👉 Execute o arquivo <code
+                                class="bg-amber-100 font-mono px-1 py-0.5 rounded font-bold">iniciar_servidor.bat</code>
+                            ou use a extensão <strong>Live Server</strong> no VS Code.</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Login Form -->
             <form id="login-form" class="space-y-4">
+                <!-- Alerta de erro de autenticação inline -->
+                <div id="login-error-alert"
+                    class="hidden p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5 animate-fadeIn">
+                    <span class="flex-shrink-0 text-base">⚠️</span>
+                    <span id="login-error-text" class="flex-1 font-medium leading-relaxed"></span>
+                </div>
+
                 <div>
                     <label for="login-email" class="block text-sm font-semibold text-gray-700 mb-1.5">Email</label>
                     <div class="relative">
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/></svg>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                            </svg>
                         </span>
                         <input type="email" id="login-email" required autocomplete="email"
                             class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-gray-50 focus:bg-white"
-                            placeholder="seu.email@escola.edu.br">
+                            placeholder="admin@escola.edu.br">
                     </div>
                 </div>
                 <div>
                     <label for="login-password" class="block text-sm font-semibold text-gray-700 mb-1.5">Senha</label>
                     <div class="relative">
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
                         </span>
                         <input type="password" id="login-password" required autocomplete="current-password"
                             class="w-full pl-11 pr-12 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-gray-50 focus:bg-white"
                             placeholder="••••••••">
-                        <button type="button" id="toggle-password" class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-600 transition-colors">
-                            <svg id="toggle-password-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        <button type="button" id="toggle-password"
+                            class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-600 transition-colors">
+                            <svg id="toggle-password-icon" class="w-5 h-5" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
                         </button>
                     </div>
                 </div>
-                <button type="submit"
+                <button type="submit" id="login-submit-btn"
                     class="w-full py-3.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 transition-all shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/40 active:scale-[0.98]">
                     Entrar no Sistema
                 </button>
             </form>
 
+            <!-- Card informativo de credenciais para teste -->
+            <div class="mt-5 p-3.5 bg-indigo-50/80 border border-indigo-100 rounded-xl text-xs text-indigo-950">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="font-bold flex items-center gap-1.5 text-indigo-900">
+                        <span>🔑</span> Usuário de Teste:
+                    </span>
+                    <button type="button" id="fill-test-credentials"
+                        class="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-white px-2 py-0.5 rounded-md border border-indigo-200 shadow-sm transition-colors">
+                        Auto-preencher
+                    </button>
+                </div>
+                <div
+                    class="space-y-1 font-mono text-[11px] text-gray-700 bg-white/70 p-2 rounded-lg border border-indigo-50">
+                    <div>Email: <strong class="text-indigo-900 select-all">admin@escola.edu.br</strong></div>
+                    <div>Senha: <strong class="text-indigo-900 select-all">admin</strong></div>
+                </div>
+            </div>
+
+            <!-- Botão de Configuração da Planilha Google Sheets -->
+            <div class="mt-3 text-center">
+                <button type="button" id="open-sheets-config-login"
+                    class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1.5 transition-colors">
+                    <span>📊</span>
+                    <span>Configurar URL da Planilha Google Sheets</span>
+                </button>
+            </div>
+
+            <!-- Script de detecção de protocolo file:// (executa imediatamente) -->
+            <script>
+                if (window.location.protocol === 'file:') {
+                    document.addEventListener('DOMContentLoaded', function () {
+                        var warn = document.getElementById('file-protocol-warning');
+                        if (warn) warn.classList.remove('hidden');
+                    });
+                }
+            </script>
+
             <p class="text-xs text-center text-gray-400 mt-6">
-                © 2024 — ETEC Dr. Domingos Minicucci Filho · Unidade: 051
+                © 2026 — ETEC Dr. Domingos Minicucci Filho · Unidade: 051
             </p>
         </div>
     </div>
@@ -107,7 +182,8 @@
                 <div class="flex items-center justify-between">
                     <!-- Logo & Title -->
                     <div class="flex items-center gap-3 min-w-0">
-                        <div class="hidden sm:flex items-center justify-center w-10 h-10 rounded-xl bg-white/15 backdrop-blur-sm text-xl flex-shrink-0">
+                        <div
+                            class="hidden sm:flex items-center justify-center w-10 h-10 rounded-xl bg-white/15 backdrop-blur-sm text-xl flex-shrink-0">
                             🖥️
                         </div>
                         <div class="min-w-0">
@@ -122,34 +198,59 @@
 
                     <!-- Right: New Reserva + User -->
                     <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                        <!-- Google Sheets Status / Config Button -->
+                        <button id="open-sheets-config-header" type="button"
+                            class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all border border-white/10"
+                            title="Status e Configuração da Planilha Google Sheets">
+                            <span id="sheets-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                            <span id="sheets-status-text" class="text-xs">Google Sheets</span>
+                        </button>
+
                         <!-- Nova Reserva Button (desktop) -->
                         <button id="new-reserva-btn"
                             class="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all active:scale-[0.97] pulse-glow">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 4v16m8-8H4" />
+                            </svg>
                             Nova Reserva
                         </button>
 
                         <!-- User Menu -->
                         <div class="relative">
-                            <button id="user-menu-btn" class="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-xl hover:bg-white/10 transition-colors">
-                                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-sm font-bold shadow-md" id="user-avatar-letter">
+                            <button id="user-menu-btn"
+                                class="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-sm font-bold shadow-md"
+                                    id="user-avatar-letter">
                                     U
                                 </div>
                                 <div class="hidden md:block text-left">
-                                    <div class="text-sm font-semibold truncate max-w-[140px]" id="user-display-name">Usuário</div>
-                                    <span id="user-role-badge" class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800">Professor</span>
+                                    <div class="text-sm font-semibold truncate max-w-[140px]" id="user-display-name">
+                                        Usuário</div>
+                                    <span id="user-role-badge"
+                                        class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800">Professor</span>
                                 </div>
-                                <svg class="w-4 h-4 opacity-60 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <svg class="w-4 h-4 opacity-60 hidden sm:block" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19 9l-7 7-7-7" />
+                                </svg>
                             </button>
 
                             <!-- User Dropdown -->
-                            <div id="user-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50 animate-slideDown">
+                            <div id="user-dropdown"
+                                class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50 animate-slideDown">
                                 <div class="px-4 py-2 border-b border-gray-100">
-                                    <div class="text-sm font-semibold text-gray-900" id="dropdown-user-name">Usuário</div>
+                                    <div class="text-sm font-semibold text-gray-900" id="dropdown-user-name">Usuário
+                                    </div>
                                     <div class="text-xs text-gray-400">Conectado</div>
                                 </div>
-                                <button id="logout-btn" class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                                <button id="logout-btn"
+                                    class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                    </svg>
                                     Sair do Sistema
                                 </button>
                             </div>
@@ -167,17 +268,28 @@
                     <div class="flex items-center gap-1 overflow-x-auto py-1 scrollbar-hide">
                         <a href="#calendario" data-nav="calendario"
                             class="nav-active flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gray-600 whitespace-nowrap transition-colors rounded-lg">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
                             Calendário
                         </a>
                         <a href="#agendamentos" data-nav="agendamentos"
                             class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gray-600 whitespace-nowrap transition-colors rounded-lg">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
                             Meus Agendamentos
                         </a>
                         <a href="#admin" data-nav="admin" id="nav-admin"
                             class="hidden flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gray-600 whitespace-nowrap transition-colors rounded-lg">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
                             Painel Admin
                         </a>
                     </div>
@@ -185,7 +297,10 @@
                     <!-- Mobile: Nova Reserva -->
                     <button id="new-reserva-btn-mobile"
                         class="sm:hidden flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/30 active:scale-[0.95] transition-transform">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                                d="M12 4v16m8-8H4" />
+                        </svg>
                     </button>
                 </div>
             </div>
@@ -197,39 +312,47 @@
             <!-- ====== VIEW: CALENDÁRIO ====== -->
             <div id="view-calendario">
                 <!-- Controls Bar -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                    <!-- Week Navigation -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                    <!-- Day Navigation -->
                     <div class="flex items-center gap-2">
-                        <button id="prev-week" class="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm active:scale-[0.95]">
-                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                        <button id="prev-week" title="Dia anterior"
+                            class="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm active:scale-[0.95]">
+                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 19l-7-7 7-7" />
+                            </svg>
                         </button>
-                        <button id="today-btn" class="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors text-sm font-semibold text-gray-700 shadow-sm active:scale-[0.97]">
+                        <button id="today-btn"
+                            class="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors text-sm font-semibold text-gray-700 shadow-sm active:scale-[0.97]">
                             Hoje
                         </button>
-                        <button id="next-week" class="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm active:scale-[0.95]">
-                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        <button id="next-week" title="Próximo dia"
+                            class="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm active:scale-[0.95]">
+                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 5l7 7-7 7" />
+                            </svg>
                         </button>
                         <span id="week-label" class="text-sm font-semibold text-gray-700 ml-2 hidden sm:inline"></span>
-                        <input type="date" id="date-picker" class="ml-2 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        <input type="date" id="date-picker"
+                            class="ml-2 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                     </div>
 
                     <!-- Turno Selector -->
                     <div class="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
-                        <button data-turno="manha" class="px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white text-gray-700 transition-all">
+                        <button data-turno="manha"
+                            class="px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white text-gray-700 transition-all">
                             ☀️ Manhã
                         </button>
-                        <button data-turno="tarde" class="px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white text-gray-700 transition-all">
+                        <button data-turno="tarde"
+                            class="px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white text-gray-700 transition-all">
                             🌤️ Tarde
                         </button>
-                        <button data-turno="noite" class="active px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-indigo-600 text-white transition-all">
+                        <button data-turno="noite"
+                            class="active px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-indigo-600 text-white transition-all">
                             🌙 Noite
                         </button>
                     </div>
-                </div>
-
-                <!-- Lab Filter Chips -->
-                <div id="lab-filter-chips" class="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-                    <!-- Populated by JS -->
                 </div>
 
                 <!-- Desktop Grid (hidden on mobile) -->
@@ -257,19 +380,32 @@
             <div id="view-admin" class="hidden">
                 <!-- Admin Tabs -->
                 <div class="flex items-center gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
-                    <button data-admin-tab="pendentes" class="px-4 py-3 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600 whitespace-nowrap transition-colors">
+                    <button data-admin-tab="pendentes"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600 whitespace-nowrap transition-colors">
                         ⏳ Pendentes
                     </button>
-                    <button data-admin-tab="laboratorios" class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                    <button data-admin-tab="laboratorios"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
                         🏢 Laboratórios
                     </button>
-                    <button data-admin-tab="professores" class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                    <button data-admin-tab="professores"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
                         👤 Professores
                     </button>
-                    <button data-admin-tab="cursos" class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                    <button data-admin-tab="cursos"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
                         🎓 Cursos
                     </button>
-                    <button data-admin-tab="usuarios" class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                    <button data-admin-tab="turmas"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                        👥 Turmas
+                    </button>
+                    <button data-admin-tab="disciplinas"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
+                        📖 Disciplinas
+                    </button>
+                    <button data-admin-tab="usuarios"
+                        class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap hover:text-gray-700 transition-colors">
                         🔐 Usuários
                     </button>
                 </div>
@@ -284,11 +420,12 @@
         <footer class="bg-white border-t border-gray-200 mt-auto">
             <div class="max-w-[1600px] mx-auto px-4 py-4 text-center">
                 <p class="text-xs text-gray-400">
-                    © 2024 — Sistema Desenvolvido para a
-                    <strong class="text-gray-500">Escola Técnica Estadual Dr. Domingos Minicucci Filho - Unidade: 051</strong>
+                    © 2026 — Sistema Desenvolvido para a
+                    <strong class="text-gray-500">Escola Técnica Estadual Dr. Domingos Minicucci Filho - Unidade:
+                        051</strong>
                 </p>
-                <p class="text-[10px] text-gray-300 mt-1">
-                    Sistema de Reservas de Laboratórios de Informática · Todos os direitos reservados
+                <p class="text-[10px] text-gray-500 mt-1">
+                    Sistema de Reservas de Laboratórios de Informática · Todos os direitos reservados - DEV: Marco Forti
                 </p>
             </div>
         </footer>
@@ -302,15 +439,22 @@
     <!-- MODAL: Nova Reserva -->
     <div id="reserva-modal" class="hidden fixed inset-0 z-50 items-center justify-center p-4">
         <div class="absolute inset-0 modal-backdrop" onclick=""></div>
-        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto z-10">
+        <div
+            class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto z-10">
             <!-- Header -->
-            <div class="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+            <div
+                class="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
                 <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-                    <span class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm">📝</span>
+                    <span
+                        class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm">📝</span>
                     Nova Reserva
                 </h2>
-                <button id="reserva-cancel" class="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button id="reserva-cancel"
+                    class="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                 </button>
             </div>
 
@@ -320,20 +464,23 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Laboratório *</label>
-                        <select id="reserva-lab" required class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                        <select id="reserva-lab" required
+                            class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
                             <option value="">Selecione...</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Data *</label>
-                        <input type="date" id="reserva-data" required class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all">
+                        <input type="date" id="reserva-data" required
+                            class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all">
                     </div>
                 </div>
 
                 <!-- Turno -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1.5">Turno *</label>
-                    <select id="reserva-turno" required class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                    <select id="reserva-turno" required
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
                         <option value="manha">☀️ Manhã (07:00 - 13:05)</option>
                         <option value="tarde">🌤️ Tarde (13:10 - 18:25)</option>
                         <option value="noite" selected>🌙 Noite (18:30 - 22:30)</option>
@@ -352,7 +499,8 @@
                 <div id="professor-auto-fill" class="hidden">
                     <label class="block text-sm font-semibold text-gray-700 mb-1.5">Professor Solicitante</label>
                     <div class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200">
-                        <span class="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">👤</span>
+                        <span
+                            class="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">👤</span>
                         <span id="auto-professor-name" class="text-sm font-medium text-indigo-700">Professor</span>
                         <span class="text-xs text-indigo-400 ml-auto">(logado)</span>
                     </div>
@@ -361,7 +509,8 @@
                 <div id="professor-select-section">
                     <label class="block text-sm font-semibold text-gray-700 mb-1.5">Professor *</label>
                     <div class="flex gap-2">
-                        <select id="reserva-professor" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                        <select id="reserva-professor"
+                            class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
                             <option value="">Selecione...</option>
                         </select>
                         <button type="button" id="add-professor-btn"
@@ -375,7 +524,8 @@
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1.5">Curso</label>
                     <div class="flex gap-2">
-                        <select id="reserva-curso" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                        <select id="reserva-curso"
+                            class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
                             <option value="">Selecione...</option>
                         </select>
                         <button type="button" id="add-curso-btn"
@@ -385,17 +535,33 @@
                     </div>
                 </div>
 
-                <!-- Turma + Disciplina -->
+                <!-- Turma + Disciplina (Seleção via Lista Dropdown) -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Turma *</label>
-                        <input type="text" id="reserva-turma" required placeholder="Ex: 2º Info A"
-                            class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all">
+                        <div class="flex gap-2">
+                            <select id="reserva-turma" required
+                                class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                                <option value="">Selecione a turma...</option>
+                            </select>
+                            <button type="button" id="add-turma-btn" title="Cadastrar nova turma"
+                                class="px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
+                                + Nova
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Disciplina *</label>
-                        <input type="text" id="reserva-disciplina" required placeholder="Ex: Desenvolvimento Web"
-                            class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all">
+                        <div class="flex gap-2">
+                            <select id="reserva-disciplina" required
+                                class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
+                                <option value="">Selecione a disciplina...</option>
+                            </select>
+                            <button type="button" id="add-disciplina-btn" title="Cadastrar nova disciplina"
+                                class="px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
+                                + Nova
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -410,14 +576,16 @@
                 <!-- Observações -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1.5">Observações</label>
-                    <textarea id="reserva-observacoes" rows="2" placeholder="Software específico necessário, configuração especial, etc."
+                    <textarea id="reserva-observacoes" rows="2"
+                        placeholder="Software específico necessário, configuração especial, etc."
                         class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all resize-none"></textarea>
                 </div>
 
                 <!-- Reserva Recorrente -->
                 <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
                     <label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" id="reserva-recorrente" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-5 h-5">
+                        <input type="checkbox" id="reserva-recorrente"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-5 h-5">
                         <div>
                             <span class="text-sm font-semibold text-gray-700">🔄 Reserva Recorrente</span>
                             <p class="text-xs text-gray-400">Repetir semanalmente até a data final</p>
@@ -432,7 +600,8 @@
 
                 <!-- Submit -->
                 <div class="flex gap-3 pt-2">
-                    <button type="button" id="reserva-cancel-2" onclick="document.getElementById('reserva-cancel').click()"
+                    <button type="button" id="reserva-cancel-2"
+                        onclick="document.getElementById('reserva-cancel').click()"
                         class="flex-1 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
                         Cancelar
                     </button>
@@ -464,8 +633,10 @@
                         class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
                 </div>
                 <div class="flex gap-3">
-                    <button type="button" id="cancel-quick-professor" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
-                    <button type="submit" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                    <button type="button" id="cancel-quick-professor"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
                 </div>
             </form>
         </div>
@@ -490,8 +661,61 @@
                         class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
                 </div>
                 <div class="flex gap-3">
-                    <button type="button" id="cancel-quick-curso" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
-                    <button type="submit" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                    <button type="button" id="cancel-quick-curso"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Quick Add Turma -->
+    <div id="quick-add-turma-modal" class="hidden fixed inset-0 z-[60] items-center justify-center p-4">
+        <div class="absolute inset-0 modal-backdrop"></div>
+        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-sm w-full z-10">
+            <div class="px-6 py-4 border-b border-gray-100">
+                <h3 class="text-base font-bold text-gray-900">👥 Nova Turma</h3>
+            </div>
+            <form id="quick-turma-form" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Nome da Turma *</label>
+                    <input type="text" id="quick-turma-nome" required placeholder="Ex: 1º M-TEC Mecatrônica"
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" id="cancel-quick-turma"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Quick Add Disciplina -->
+    <div id="quick-add-disciplina-modal" class="hidden fixed inset-0 z-[60] items-center justify-center p-4">
+        <div class="absolute inset-0 modal-backdrop"></div>
+        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-sm w-full z-10">
+            <div class="px-6 py-4 border-b border-gray-100">
+                <h3 class="text-base font-bold text-gray-900">📖 Nova Disciplina</h3>
+            </div>
+            <form id="quick-disciplina-form" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Nome da Disciplina *</label>
+                    <input type="text" id="quick-disciplina-nome" required placeholder="Ex: Programação Web I"
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Sigla / Código (opcional)</label>
+                    <input type="text" id="quick-disciplina-sigla" placeholder="Ex: PW-I"
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" id="cancel-quick-disciplina"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                    <button type="submit"
+                        class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
                 </div>
             </form>
         </div>
@@ -499,13 +723,21 @@
 
     <!-- MODAL: Reserva Detail -->
     <div id="reserva-detail-modal" class="hidden fixed inset-0 z-50 items-center justify-center p-4">
-        <div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('reserva-detail-modal').classList.add('hidden'); document.getElementById('reserva-detail-modal').classList.remove('flex'); document.body.style.overflow=''"></div>
-        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto z-10">
-            <div class="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+        <div class="absolute inset-0 modal-backdrop"
+            onclick="document.getElementById('reserva-detail-modal').classList.add('hidden'); document.getElementById('reserva-detail-modal').classList.remove('flex'); document.body.style.overflow=''">
+        </div>
+        <div
+            class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto z-10">
+            <div
+                class="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
                 <h2 class="text-lg font-bold text-gray-900">📋 Detalhes da Reserva</h2>
-                <button onclick="document.getElementById('reserva-detail-modal').classList.add('hidden'); document.getElementById('reserva-detail-modal').classList.remove('flex'); document.body.style.overflow=''"
+                <button
+                    onclick="document.getElementById('reserva-detail-modal').classList.add('hidden'); document.getElementById('reserva-detail-modal').classList.remove('flex'); document.body.style.overflow=''"
                     class="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                 </button>
             </div>
             <div id="reserva-detail-content" class="p-6">
@@ -527,6 +759,70 @@
         </div>
     </div>
 
+    <!-- MODAL: Google Sheets API Config -->
+    <div id="sheets-config-modal" class="hidden fixed inset-0 z-[70] items-center justify-center p-4">
+        <div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');"></div>
+        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full z-10 overflow-hidden animate-scaleUp">
+            <div class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">📊</span>
+                    <div>
+                        <h3 class="text-base font-bold">Conexão com Google Sheets</h3>
+                        <p class="text-xs text-emerald-100">Banco de dados em planilha online</p>
+                    </div>
+                </div>
+                <button type="button" onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');"
+                    class="p-1.5 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <div id="sheets-status-banner" class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-xs flex items-start gap-2.5">
+                    <span id="sheets-banner-icon" class="text-base">🟡</span>
+                    <div class="flex-1">
+                        <strong id="sheets-banner-title" class="font-semibold block text-gray-800">Modo Local (Demonstração)</strong>
+                        <p id="sheets-banner-desc" class="text-gray-600 mt-0.5 leading-relaxed">Os dados estão sendo salvos temporariamente no seu navegador. Para sincronizar em tempo real com o Google Drive, insira a URL da API gerada pelo Google Apps Script.</p>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="sheets-api-url-input" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                        URL do App da Web (Google Apps Script)
+                    </label>
+                    <input type="url" id="sheets-api-url-input"
+                        placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all">
+                    <p class="text-[11px] text-gray-400 mt-1">A URL deve terminar com <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-700">/exec</code></p>
+                </div>
+
+                <div class="flex flex-wrap gap-2 pt-2">
+                    <button type="button" id="sheets-test-btn"
+                        class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-1.5">
+                        <span>⚡</span> Testar Conexão
+                    </button>
+                    <button type="button" id="sheets-save-btn"
+                        class="flex-1 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm">
+                        <span>💾</span> Salvar e Conectar
+                    </button>
+                </div>
+
+                <div class="border-t border-gray-100 pt-3">
+                    <details class="text-xs text-gray-500 cursor-pointer">
+                        <summary class="font-semibold text-emerald-700 hover:underline">📖 Como gerar a URL no Google Sheets? (3 passos)</summary>
+                        <ol class="list-decimal pl-5 mt-2 space-y-1.5 text-gray-600 leading-relaxed">
+                            <li>Crie uma nova planilha no seu Google Drive (ou use o atalho <a href="https://sheets.new" target="_blank" class="text-indigo-600 underline">sheets.new</a>).</li>
+                            <li>Acesse <strong>Extensões > Apps Script</strong>, apague tudo e cole o conteúdo do arquivo <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-800">google-apps-script/Codigo.gs</code>.</li>
+                            <li>Clique em <strong>Implantar > Nova Implantação > App da Web</strong>, configure acesso como <strong>Qualquer Pessoa</strong> (Anyone) e copie a URL gerada!</li>
+                        </ol>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- TOAST CONTAINER -->
     <div id="toast-container" class="fixed top-4 right-4 z-[300] flex flex-col gap-2 items-end max-w-[440px]"></div>
 
@@ -534,4 +830,5 @@
     <script type="module" src="js/app.js"></script>
 
 </body>
+
 </html>
