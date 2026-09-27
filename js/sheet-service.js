@@ -53,15 +53,65 @@ export function parseAulas(aulas) {
  */
 function normalizeReserva(r) {
     if (!r) return r;
+
+    // Resolução de Turma
+    let turmaVal = r.turmaNome || r.turma || '';
+    if (!turmaVal && r.turmaId && memoryCache.turmas && memoryCache.turmas.length > 0) {
+        const found = memoryCache.turmas.find(t => String(t.id) === String(r.turmaId));
+        if (found) turmaVal = found.nome || '';
+    }
+    if (!turmaVal && r.cursoNome) {
+        turmaVal = r.cursoNome;
+    }
+
+    // Resolução de Disciplina
+    let discNome = r.disciplinaNome || r.disciplina || '';
+    let discSigla = r.disciplinaSigla || '';
+
+    // Se tiver sigla mas não tiver nome, tenta recuperar pelo catálogo de disciplinas
+    if (!discNome && discSigla && memoryCache.disciplinas && memoryCache.disciplinas.length > 0) {
+        const found = memoryCache.disciplinas.find(d =>
+            String(d.sigla || '').toLowerCase().trim() === discSigla.toLowerCase().trim()
+        );
+        if (found) discNome = found.nome || '';
+    }
+    // Se tiver nome mas não tiver sigla, tenta recuperar sigla
+    if (!discSigla && discNome && memoryCache.disciplinas && memoryCache.disciplinas.length > 0) {
+        const found = memoryCache.disciplinas.find(d =>
+            String(d.nome || '').toLowerCase().trim() === discNome.toLowerCase().trim()
+        );
+        if (found) discSigla = found.sigla || '';
+    }
+    if (!discSigla && discNome) {
+        discSigla = getDisciplinaSigla(discNome) || '';
+    }
+    if (!discNome && discSigla) {
+        discNome = discSigla;
+    }
+
+    const recursosParsed = Array.isArray(r.recursos) ? r.recursos : (
+        Array.isArray(r.recursosExtras) ? r.recursosExtras : (
+            typeof r.recursosExtras === 'string' && r.recursosExtras ? (
+                r.recursosExtras.startsWith('[') ? JSON.parse(r.recursosExtras) : [r.recursosExtras]
+            ) : (
+                typeof r.recursos === 'string' && r.recursos ? (
+                    r.recursos.startsWith('[') ? JSON.parse(r.recursos) : [r.recursos]
+                ) : []
+            )
+        )
+    );
+
     return {
         ...r,
         data: normalizeDate(r.data),
         aulas: parseAulas(r.aulas),
-        turma: r.turma || r.turmaNome || '',
-        turmaNome: r.turmaNome || r.turma || '',
-        disciplina: r.disciplina || r.disciplinaNome || '',
-        disciplinaNome: r.disciplinaNome || r.disciplina || '',
-        disciplinaSigla: r.disciplinaSigla || ''
+        turma: turmaVal,
+        turmaNome: turmaVal,
+        disciplina: discNome,
+        disciplinaNome: discNome,
+        disciplinaSigla: discSigla,
+        recursos: recursosParsed,
+        recursosExtras: recursosParsed
     };
 }
 
@@ -69,7 +119,7 @@ function normalizeReserva(r) {
 // CACHE EM MEMÓRIA E LOCALSTORAGE (STALE-WHILE-REVALIDATE)
 // ============================================================
 
-const CACHE_STORAGE_KEY = 'reserva_sheets_cache_v2';
+const CACHE_STORAGE_KEY = 'reserva_sheets_cache_v3';
 let initialFetchPromise = null;
 const listeners = new Set();
 

@@ -126,8 +126,9 @@ async function renderPendentes(container) {
                             👤 <strong>${escapeHTML(r.professorNome || 'Professor')}</strong>
                             ${r.cursoNome ? `· 🎓 ${escapeHTML(r.cursoNome)}` : ''}
                         </div>
-                        <div class="text-xs text-gray-500">
-                            📚 ${escapeHTML(r.turma || '')} — ${escapeHTML(r.disciplina || '')}
+                        <div class="text-xs text-gray-600">
+                            👥 <strong>Turma:</strong> ${escapeHTML(r.turmaNome || r.turma || r.cursoNome || 'Sem turma')} · 
+                            📖 <strong>Disciplina:</strong> ${escapeHTML(r.disciplinaNome || r.disciplina || r.disciplinaSigla || 'Sem disciplina')}
                             ${r.recursos?.length ? `· 🔧 ${r.recursos.join(', ')}` : ''}
                         </div>
                         ${r.observacoes ? `<div class="text-xs text-gray-400 italic">"${escapeHTML(r.observacoes)}"</div>` : ''}

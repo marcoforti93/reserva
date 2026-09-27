@@ -207,6 +207,17 @@ async function loadMyReservations() {
             return lbl || `${a}ª aula`;
         }).join(', ');
 
+        const turmaCard = r.turmaNome || r.turma || (r.cursoNome ? r.cursoNome : 'Sem turma');
+        let discCard = r.disciplinaNome || r.disciplina || '';
+        if (r.disciplinaSigla) {
+            if (discCard && !discCard.toLowerCase().includes(r.disciplinaSigla.toLowerCase())) {
+                discCard = `${discCard} (${r.disciplinaSigla})`;
+            } else if (!discCard) {
+                discCard = r.disciplinaSigla;
+            }
+        }
+        if (!discCard) discCard = 'Sem disciplina';
+
         html += `
         <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
             <div class="h-1.5 ${statusCfg.bgClass}"></div>
@@ -221,8 +232,9 @@ async function loadMyReservations() {
                             <div>📅 <strong>${formatDateBR(r.data)}</strong> · ${turnoLabel}</div>
                             <div>⏰ ${aulasLabel}</div>
                             <div>👤 ${escapeHTML(r.professorNome || '')}</div>
-                            <div>📚 ${escapeHTML(r.turma || '')} — ${escapeHTML(r.disciplina || '')}</div>
-                            ${r.cursoNome ? `<div>🎓 ${escapeHTML(r.cursoNome)}</div>` : ''}
+                            <div>👥 <strong>Turma:</strong> ${escapeHTML(turmaCard)}</div>
+                            <div>📖 <strong>Disciplina:</strong> ${escapeHTML(discCard)}</div>
+                            ${r.cursoNome && r.cursoNome !== turmaCard ? `<div>🎓 ${escapeHTML(r.cursoNome)}</div>` : ''}
                             ${r.recursos?.length ? `<div>🔧 ${r.recursos.join(', ')}</div>` : ''}
                             ${r.observacoes ? `<div class="text-gray-400 italic text-xs mt-1">💬 ${escapeHTML(r.observacoes)}</div>` : ''}
                             ${r.recorrente ? `<div class="text-indigo-500 text-xs mt-1">🔄 Recorrente até ${r.recorrenteAte ? formatDateBR(r.recorrenteAte) : '—'}</div>` : ''}
@@ -327,6 +339,18 @@ async function showReservaDetails(reservaId) {
         const turnoLabel = SCHEDULE_CONFIG[r.turno]?.label || r.turno;
         const aulasLabel = (r.aulas || []).map(a => getAulaLabel(r.turno, a) || `${a}ª aula`).join('<br>');
 
+        const turmaTexto = r.turmaNome || r.turma || (r.cursoNome ? r.cursoNome : 'Não informada');
+        
+        let disciplinaTexto = r.disciplinaNome || r.disciplina || '';
+        if (r.disciplinaSigla) {
+            if (disciplinaTexto && !disciplinaTexto.toLowerCase().includes(r.disciplinaSigla.toLowerCase())) {
+                disciplinaTexto = `${disciplinaTexto} (${r.disciplinaSigla})`;
+            } else if (!disciplinaTexto) {
+                disciplinaTexto = r.disciplinaSigla;
+            }
+        }
+        if (!disciplinaTexto) disciplinaTexto = 'Não informada';
+
         const detailContent = document.getElementById('reserva-detail-content');
         if (detailContent) {
             detailContent.innerHTML = `
@@ -357,10 +381,14 @@ async function showReservaDetails(reservaId) {
                                 <div><strong>Professor:</strong> ${escapeHTML(r.professorNome || '')}</div>
                             </div>
                             <div class="flex items-start gap-2">
-                                <span class="text-gray-400">📚</span>
-                                <div><strong>Turma:</strong> ${escapeHTML(r.turma || '')}<br><strong>Disciplina:</strong> ${escapeHTML(r.disciplina || '')}</div>
+                                <span class="text-gray-400">👥</span>
+                                <div><strong>Turma:</strong> <span class="text-gray-900 font-medium">${escapeHTML(turmaTexto)}</span></div>
                             </div>
-                            ${(r.cursoNome || r.cursoSigla) ? `<div class="flex items-start gap-2">
+                            <div class="flex items-start gap-2">
+                                <span class="text-gray-400">📖</span>
+                                <div><strong>Disciplina:</strong> <span class="text-gray-900 font-medium">${escapeHTML(disciplinaTexto)}</span></div>
+                            </div>
+                            ${(r.cursoNome || r.cursoSigla) && r.cursoNome !== turmaTexto ? `<div class="flex items-start gap-2">
                                 <span class="text-gray-400">🎓</span>
                                 <div><strong>Curso:</strong> ${escapeHTML(r.cursoNome || '')}${r.cursoSigla ? ` (${escapeHTML(r.cursoSigla)})` : ''}</div>
                             </div>` : ''}
