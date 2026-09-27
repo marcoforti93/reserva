@@ -541,7 +541,7 @@ function setupSheetsConfigUI() {
 }
 
 async function initApp() {
-    console.log('🚀 Inicializando Sistema de Reservas (Google Sheets)...');
+    console.log('🚀 Inicializando Espaço ETEC - Reserva de Laboratórios (Google Sheets)...');
 
     setupLoginForm();
     setupRouter();

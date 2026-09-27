@@ -258,7 +258,7 @@ function buildCalendarGridAOA({ dates, turnosList, labs, reservas, mode }) {
     const aoa = [];
 
     // Cabeçalho institucional
-    aoa.push(['SISTEMA DE RESERVAS DE LABORATÓRIOS - ETEC DR. DOMINGOS MINICUCCI FILHO (UNIDADE 051)']);
+    aoa.push(['ESPAÇO ETEC - RESERVA DE LABORATÓRIOS · ETEC DR. DOMINGOS MINICUCCI FILHO (UNIDADE 051)']);
     aoa.push([mode === 'com-reservas' ? 'VISÃO GERAL DO CALENDÁRIO COM RESERVAS DOS PROFESSORES' : 'GRADE HORÁRIA DOS LABORATÓRIOS (MODELO SEM RESERVAS)']);
     aoa.push([`Gerado em: ${new Date().toLocaleString('pt-BR')}`]);
     aoa.push([]); // Linha em branco
