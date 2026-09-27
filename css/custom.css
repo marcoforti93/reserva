@@ -125,6 +125,52 @@ body {
 }
 
 /* ========================
+   DAY PILLS (NAVEGAÇÃO POR DIA)
+   ======================== */
+.day-pill {
+    padding: 6px 14px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: white;
+    color: #4B5563;
+    border: 1.5px solid #E5E7EB;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+
+.day-pill:hover {
+    border-color: #A5B4FC;
+    color: #4F46E5;
+    background: #EEF2FF;
+}
+
+.day-pill.active {
+    background: linear-gradient(135deg, #4F46E5, #6366F1);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+}
+
+.day-pill.is-today-indicator::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: #10B981;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.day-pill.active.is-today-indicator::after {
+    background: #34D399;
+}
+
+/* ========================
    TURNO BUTTONS
    ======================== */
 [data-turno] {
