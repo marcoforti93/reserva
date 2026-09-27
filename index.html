@@ -424,7 +424,7 @@
                         051</strong>
                 </p>
                 <p class="text-[10px] text-gray-500 mt-1">
-                    Sistema de Reservas de Laboratórios de Informática · Todos os direitos reservados - DEV: Marco Forti
+                    Sistema de Reservas de Laboratórios de Informática · DEV: Marco A. Forti
                 </p>
             </div>
         </footer>
@@ -760,9 +760,13 @@
 
     <!-- MODAL: Google Sheets API Config -->
     <div id="sheets-config-modal" class="hidden fixed inset-0 z-[70] items-center justify-center p-4">
-        <div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');"></div>
-        <div class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full z-10 overflow-hidden animate-scaleUp">
-            <div class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
+        <div class="absolute inset-0 modal-backdrop"
+            onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');">
+        </div>
+        <div
+            class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full z-10 overflow-hidden animate-scaleUp">
+            <div
+                class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <span class="text-2xl">📊</span>
                     <div>
@@ -770,31 +774,39 @@
                         <p class="text-xs text-emerald-100">Banco de dados em planilha online</p>
                     </div>
                 </div>
-                <button type="button" onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');"
+                <button type="button"
+                    onclick="document.getElementById('sheets-config-modal').classList.add('hidden'); document.getElementById('sheets-config-modal').classList.remove('flex');"
                     class="p-1.5 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            
+
             <div class="p-6 space-y-4">
-                <div id="sheets-status-banner" class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-xs flex items-start gap-2.5">
+                <div id="sheets-status-banner"
+                    class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-xs flex items-start gap-2.5">
                     <span id="sheets-banner-icon" class="text-base">🟡</span>
                     <div class="flex-1">
-                        <strong id="sheets-banner-title" class="font-semibold block text-gray-800">Modo Local (Demonstração)</strong>
-                        <p id="sheets-banner-desc" class="text-gray-600 mt-0.5 leading-relaxed">Os dados estão sendo salvos temporariamente no seu navegador. Para sincronizar em tempo real com o Google Drive, insira a URL da API gerada pelo Google Apps Script.</p>
+                        <strong id="sheets-banner-title" class="font-semibold block text-gray-800">Modo Local
+                            (Demonstração)</strong>
+                        <p id="sheets-banner-desc" class="text-gray-600 mt-0.5 leading-relaxed">Os dados estão sendo
+                            salvos temporariamente no seu navegador. Para sincronizar em tempo real com o Google Drive,
+                            insira a URL da API gerada pelo Google Apps Script.</p>
                     </div>
                 </div>
 
                 <div>
-                    <label for="sheets-api-url-input" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    <label for="sheets-api-url-input"
+                        class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                         URL do App da Web (Google Apps Script)
                     </label>
                     <input type="url" id="sheets-api-url-input"
                         placeholder="https://script.google.com/macros/s/AKfycb.../exec"
                         class="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all">
-                    <p class="text-[11px] text-gray-400 mt-1">A URL deve terminar com <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-700">/exec</code></p>
+                    <p class="text-[11px] text-gray-400 mt-1">A URL deve terminar com <code
+                            class="bg-gray-100 px-1 py-0.5 rounded text-gray-700">/exec</code></p>
                 </div>
 
                 <div class="flex flex-wrap gap-2 pt-2">
@@ -810,11 +822,17 @@
 
                 <div class="border-t border-gray-100 pt-3">
                     <details class="text-xs text-gray-500 cursor-pointer">
-                        <summary class="font-semibold text-emerald-700 hover:underline">📖 Como gerar a URL no Google Sheets? (3 passos)</summary>
+                        <summary class="font-semibold text-emerald-700 hover:underline">📖 Como gerar a URL no Google
+                            Sheets? (3 passos)</summary>
                         <ol class="list-decimal pl-5 mt-2 space-y-1.5 text-gray-600 leading-relaxed">
-                            <li>Crie uma nova planilha no seu Google Drive (ou use o atalho <a href="https://sheets.new" target="_blank" class="text-indigo-600 underline">sheets.new</a>).</li>
-                            <li>Acesse <strong>Extensões > Apps Script</strong>, apague tudo e cole o conteúdo do arquivo <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-800">google-apps-script/Codigo.gs</code>.</li>
-                            <li>Clique em <strong>Implantar > Nova Implantação > App da Web</strong>, configure acesso como <strong>Qualquer Pessoa</strong> (Anyone) e copie a URL gerada!</li>
+                            <li>Crie uma nova planilha no seu Google Drive (ou use o atalho <a href="https://sheets.new"
+                                    target="_blank" class="text-indigo-600 underline">sheets.new</a>).</li>
+                            <li>Acesse <strong>Extensões > Apps Script</strong>, apague tudo e cole o conteúdo do
+                                arquivo <code
+                                    class="bg-gray-100 px-1 py-0.5 rounded text-gray-800">google-apps-script/Codigo.gs</code>.
+                            </li>
+                            <li>Clique em <strong>Implantar > Nova Implantação > App da Web</strong>, configure acesso
+                                como <strong>Qualquer Pessoa</strong> (Anyone) e copie a URL gerada!</li>
                         </ol>
                     </details>
                 </div>
