@@ -5,7 +5,7 @@
 
 import { initAuthObserver, login, logout, getCurrentUser, getUserProfile, isAdmin, updateUserUI } from './auth.js';
 import { initCalendarView, refreshCalendar, destroyCalendarView } from './calendar-view.js';
-import { initReservationForm, openReservationForm } from './reservation-form.js';
+import { initReservationForm, openReservationForm, updateFormRoleVisibility } from './reservation-form.js';
 import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
 import { getReservasProfessor, getReservas, getReservasSemana, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
 import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
@@ -127,17 +127,6 @@ function setupLoginForm() {
                 submitBtn.innerHTML = originalBtnHtml;
             }
         }
-    });
-
-    // Botão de preenchimento automático para teste
-    document.getElementById('fill-test-credentials')?.addEventListener('click', () => {
-        const emailInput = document.getElementById('login-email');
-        const passInput = document.getElementById('login-password');
-        if (emailInput) emailInput.value = 'admin@escola.edu.br';
-        if (passInput) passInput.value = 'admin';
-        const err = document.getElementById('login-error-alert');
-        if (err) err.classList.add('hidden');
-        showToast('Credenciais preenchidas!', 'info', 2000);
     });
 
     // Logout button
@@ -339,7 +328,10 @@ async function showReservaDetails(reservaId) {
         const turnoLabel = SCHEDULE_CONFIG[r.turno]?.label || r.turno;
         const aulasLabel = (r.aulas || []).map(a => getAulaLabel(r.turno, a) || `${a}ª aula`).join('<br>');
 
-        const turmaTexto = r.turmaNome || r.turma || (r.cursoNome ? r.cursoNome : 'Não informada');
+        let cursoTexto = r.turmaNome || r.turma || r.cursoNome || 'Não informado';
+        if (r.cursoNome && (r.turmaNome || r.turma) && !(r.turmaNome || r.turma).toLowerCase().includes(r.cursoNome.toLowerCase())) {
+            cursoTexto = `${r.cursoNome} · ${r.turmaNome || r.turma}`;
+        }
         
         let disciplinaTexto = r.disciplinaNome || r.disciplina || '';
         if (r.disciplinaSigla) {
@@ -381,17 +373,13 @@ async function showReservaDetails(reservaId) {
                                 <div><strong>Professor:</strong> ${escapeHTML(r.professorNome || '')}</div>
                             </div>
                             <div class="flex items-start gap-2">
-                                <span class="text-gray-400">👥</span>
-                                <div><strong>Turma:</strong> <span class="text-gray-900 font-medium">${escapeHTML(turmaTexto)}</span></div>
+                                <span class="text-gray-400">🎓</span>
+                                <div><strong>Curso:</strong> <span class="text-gray-900 font-medium">${escapeHTML(cursoTexto)}</span></div>
                             </div>
                             <div class="flex items-start gap-2">
                                 <span class="text-gray-400">📖</span>
                                 <div><strong>Disciplina:</strong> <span class="text-gray-900 font-medium">${escapeHTML(disciplinaTexto)}</span></div>
                             </div>
-                            ${(r.cursoNome || r.cursoSigla) && r.cursoNome !== turmaTexto ? `<div class="flex items-start gap-2">
-                                <span class="text-gray-400">🎓</span>
-                                <div><strong>Curso:</strong> ${escapeHTML(r.cursoNome || '')}${r.cursoSigla ? ` (${escapeHTML(r.cursoSigla)})` : ''}</div>
-                            </div>` : ''}
                         </div>
                     </div>
 
@@ -467,6 +455,11 @@ function setupSheetsConfigUI() {
     };
 
     const openConfigModal = () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem configurar a URL da planilha.', 'warning');
+            return;
+        }
+
         const modal = document.getElementById('sheets-config-modal');
         const input = document.getElementById('sheets-api-url-input');
         const bannerTitle = document.getElementById('sheets-banner-title');
@@ -492,9 +485,13 @@ function setupSheetsConfigUI() {
     };
 
     document.getElementById('open-sheets-config-header')?.addEventListener('click', openConfigModal);
-    document.getElementById('open-sheets-config-login')?.addEventListener('click', openConfigModal);
 
     document.getElementById('sheets-save-btn')?.addEventListener('click', () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem configurar a URL da planilha.', 'warning');
+            return;
+        }
+
         const input = document.getElementById('sheets-api-url-input');
         const val = input ? input.value.trim() : '';
         setCustomSheetApiUrl(val);
@@ -511,6 +508,11 @@ function setupSheetsConfigUI() {
     });
 
     document.getElementById('sheets-test-btn')?.addEventListener('click', async () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem testar a conexão com a planilha.', 'warning');
+            return;
+        }
+
         const input = document.getElementById('sheets-api-url-input');
         const val = input ? input.value.trim() : '';
         if (!val) {
@@ -553,11 +555,16 @@ async function initApp() {
             showApp();
             updateUserUI();
 
-            // Mostra/esconde tab admin
+            // Mostra/esconde tab admin, botão de configuração do Sheets e botões de criação
             const adminTab = document.getElementById('nav-admin');
             if (adminTab) {
                 adminTab.classList.toggle('hidden', !isAdmin());
             }
+            const sheetsHeaderBtn = document.getElementById('open-sheets-config-header');
+            if (sheetsHeaderBtn) {
+                sheetsHeaderBtn.classList.toggle('hidden', !isAdmin());
+            }
+            updateFormRoleVisibility();
 
             // Inicializa views
             try {
@@ -576,6 +583,11 @@ async function initApp() {
             console.log('🔒 Deslogado');
             showLogin();
             destroyCalendarView();
+            updateFormRoleVisibility();
+            const sheetsHeaderBtn = document.getElementById('open-sheets-config-header');
+            if (sheetsHeaderBtn) {
+                sheetsHeaderBtn.classList.add('hidden');
+            }
         }
     );
 }

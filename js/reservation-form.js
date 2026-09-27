@@ -29,6 +29,7 @@ export async function initReservationForm() {
     await loadFormData();
     setupFormListeners();
     setupQuickAddModals();
+    updateFormRoleVisibility();
 }
 
 /**
@@ -319,6 +320,9 @@ export function openReservationForm(preData = {}) {
         if (profAutoFill) profAutoFill.classList.add('hidden');
     }
 
+    // Garante que botões de criação rápida só apareçam para admin
+    updateFormRoleVisibility();
+
     // Reset recorrente
     const recorrenteToggle = document.getElementById('reserva-recorrente');
     const recorrenteSection = document.getElementById('recorrente-section');
@@ -480,11 +484,19 @@ function setupQuickAddModals() {
     // CURSO
     // ------------------------------------
     document.getElementById('add-curso-btn')?.addEventListener('click', () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novos cursos.', 'warning');
+            return;
+        }
         openModal('quick-add-curso-modal');
     });
 
     document.getElementById('quick-curso-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novos cursos.', 'warning');
+            return;
+        }
         const nome = document.getElementById('quick-curso-nome')?.value?.trim();
         const sigla = document.getElementById('quick-curso-sigla')?.value?.trim();
 
@@ -516,11 +528,19 @@ function setupQuickAddModals() {
     // TURMA (Salva no Firestore)
     // ------------------------------------
     document.getElementById('add-turma-btn')?.addEventListener('click', () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novas turmas.', 'warning');
+            return;
+        }
         openModal('quick-add-turma-modal');
     });
 
     document.getElementById('quick-turma-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novas turmas.', 'warning');
+            return;
+        }
         const nome = document.getElementById('quick-turma-nome')?.value?.trim();
         if (!nome) return showToast('Informe o nome da turma.', 'warning');
 
@@ -550,11 +570,19 @@ function setupQuickAddModals() {
     // DISCIPLINA (Salva no Firestore)
     // ------------------------------------
     document.getElementById('add-disciplina-btn')?.addEventListener('click', () => {
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novas disciplinas.', 'warning');
+            return;
+        }
         openModal('quick-add-disciplina-modal');
     });
 
     document.getElementById('quick-disciplina-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!isAdmin()) {
+            showToast('Apenas administradores podem cadastrar novas disciplinas.', 'warning');
+            return;
+        }
         const nome = document.getElementById('quick-disciplina-nome')?.value?.trim();
         const siglaInput = document.getElementById('quick-disciplina-sigla')?.value?.trim();
         const sigla = siglaInput || getDisciplinaSigla(nome);
@@ -590,6 +618,20 @@ function setupQuickAddModals() {
             }
         });
     });
+}
+
+/**
+ * Atualiza a visibilidade dos botões de criação rápida conforme o perfil (apenas administrador)
+ */
+export function updateFormRoleVisibility() {
+    const admin = isAdmin();
+    const addCursoBtn = document.getElementById('add-curso-btn');
+    const addTurmaBtn = document.getElementById('add-turma-btn');
+    const addDisciplinaBtn = document.getElementById('add-disciplina-btn');
+
+    if (addCursoBtn) addCursoBtn.classList.toggle('hidden', !admin);
+    if (addTurmaBtn) addTurmaBtn.classList.toggle('hidden', !admin);
+    if (addDisciplinaBtn) addDisciplinaBtn.classList.toggle('hidden', !admin);
 }
 
 /**

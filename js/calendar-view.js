@@ -298,12 +298,11 @@ function renderDesktopGrid() {
                                 <span class="truncate" title="${escapeHTML(professorNome)}">${escapeHTML(professorNome)}</span>
                             </div>
 
-                            <!-- Linha 3: Turma e Sigla da Disciplina -->
-                            ${(reserva.turma || disciplinaSigla) ? `
-                                <div class="text-[10px] opacity-85 truncate border-t border-white/20 pt-0.5 mt-0.5" title="${reserva.disciplina ? `Disciplina: ${escapeHTML(reserva.disciplina)}` : ''}">
-                                    ${reserva.turma ? `<span>${escapeHTML(reserva.turma)}</span>` : ''}
-                                    ${reserva.turma && disciplinaSigla ? `<span> · </span>` : ''}
-                                    ${disciplinaSigla ? `<span class="font-semibold">${escapeHTML(disciplinaSigla)}</span>` : ''}
+                            <!-- Linha 3: Sigla da Disciplina -->
+                            ${disciplinaSigla ? `
+                                <div class="text-[10px] opacity-90 truncate border-t border-white/20 pt-0.5 mt-0.5 flex items-center gap-1 font-semibold" title="${(reserva.disciplinaNome || reserva.disciplina) ? `Disciplina: ${escapeHTML(reserva.disciplinaNome || reserva.disciplina)}` : `Sigla: ${escapeHTML(disciplinaSigla)}`}">
+                                    <span>📖</span>
+                                    <span class="truncate">${escapeHTML(disciplinaSigla)}</span>
                                 </div>
                             ` : ''}
                         </div>
@@ -418,9 +417,10 @@ function renderMobileCards() {
                             <div class="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-1">
                                 <span>👤 ${escapeHTML(professorNome)}</span>
                             </div>
-                            ${(reserva.turma || disciplinaSigla) ? `
-                                <div class="text-[11px] text-gray-500 pt-1 border-t border-gray-100 mt-1" title="${reserva.disciplina ? `Disciplina: ${escapeHTML(reserva.disciplina)}` : ''}">
-                                    📚 ${escapeHTML(reserva.turma || '')}${reserva.turma && disciplinaSigla ? ' — ' : ''}${escapeHTML(disciplinaSigla || '')}
+                            ${disciplinaSigla ? `
+                                <div class="text-[11px] text-gray-600 font-semibold pt-1 border-t border-gray-100 mt-1 flex items-center gap-1" title="${(reserva.disciplinaNome || reserva.disciplina) ? `Disciplina: ${escapeHTML(reserva.disciplinaNome || reserva.disciplina)}` : `Sigla: ${escapeHTML(disciplinaSigla)}`}">
+                                    <span>📖</span>
+                                    <span class="truncate">${escapeHTML(disciplinaSigla)}</span>
                                 </div>
                             ` : ''}
                         </div>
