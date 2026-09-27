@@ -52,6 +52,22 @@ const HEADERS = {
 };
 
 /**
+ * Normaliza qualquer formato de data para YYYY-MM-DD
+ */
+function normalizeDateStr(d) {
+  if (!d) return '';
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const s = String(d).trim();
+  if (s.includes('T')) return s.split('T')[0];
+  return s.substring(0, 10);
+}
+
+/**
  * Ponto de entrada GET (leitura de dados)
  */
 function doGet(e) {
@@ -86,18 +102,18 @@ function doGet(e) {
         break;
         
       case 'getReservas':
-        const dataFiltro = e.parameter.data;
-        const semanaFiltro = e.parameter.semana ? e.parameter.semana.split(',') : null;
+        const dataFiltro = e.parameter.data ? normalizeDateStr(e.parameter.data) : null;
+        const semanaFiltro = e.parameter.semana ? e.parameter.semana.split(',').map(normalizeDateStr) : null;
         const profId = e.parameter.professorId;
         let reservas = getSheetRows(SHEETS.RESERVAS);
         
         if (dataFiltro) {
-          reservas = reservas.filter(r => r.data === dataFiltro);
+          reservas = reservas.filter(r => normalizeDateStr(r.data) === dataFiltro);
         } else if (semanaFiltro && semanaFiltro.length > 0) {
-          reservas = reservas.filter(r => semanaFiltro.includes(r.data));
+          reservas = reservas.filter(r => semanaFiltro.includes(normalizeDateStr(r.data)));
         }
         if (profId) {
-          reservas = reservas.filter(r => r.professorId === profId);
+          reservas = reservas.filter(r => String(r.professorId) === String(profId));
         }
         result = { success: true, data: reservas };
         break;
@@ -105,7 +121,7 @@ function doGet(e) {
       case 'getItems':
         const table = e.parameter.table;
         if (!table || !HEADERS[table]) {
-          throw new Error('Tabela não informada ou inválida.');
+          throw new Error('Tabela não informada ou inválida: ' + table);
         }
         result = { success: true, data: getSheetRows(table) };
         break;
@@ -226,14 +242,24 @@ function getSheetRows(sheetName) {
     const obj = {};
     headers.forEach((header, index) => {
       let val = row[index];
+      
+      // Normalização automática de datas (como Date object do Sheets)
+      if (val instanceof Date) {
+        val = normalizeDateStr(val);
+      }
+      
       // Tenta fazer parse de arrays e objetos JSON salvos como texto
-      if (typeof val === 'string' && (val.startsWith('[') || val.startsWith('{'))) {
-        try {
-          val = JSON.parse(val);
-        } catch (e) {
-          // Mantém valor original como string se falhar
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+          try {
+            val = JSON.parse(trimmed);
+          } catch (e) {
+            // Mantém valor original como string se falhar
+          }
         }
       }
+      
       // Converte strings booleanas
       if (val === 'true') val = true;
       if (val === 'false') val = false;
@@ -255,6 +281,12 @@ function appendSheetRow(sheetName, obj) {
   const row = headers.map(header => {
     let val = obj[header];
     if (val === undefined || val === null) return '';
+    
+    // Tratamento especial para coluna de data para manter como texto literal YYYY-MM-DD
+    if (header === 'data' && val) {
+      return "'" + normalizeDateStr(val);
+    }
+    
     if (typeof val === 'object') return JSON.stringify(val);
     return val;
   });
@@ -294,7 +326,8 @@ function updateSheetRowById(sheetName, id, updates) {
     if (updates.hasOwnProperty(header) && header !== 'id') {
       let val = updates[header];
       if (val === undefined || val === null) val = '';
-      if (typeof val === 'object') val = JSON.stringify(val);
+      if (header === 'data' && val) val = "'" + normalizeDateStr(val);
+      else if (typeof val === 'object') val = JSON.stringify(val);
       sheet.getRange(targetRow, colIdx + 1).setValue(val);
     }
   });
@@ -369,7 +402,7 @@ function handleRegisterUser(payload) {
   const newUser = {
     id: generateId('usr'),
     email: payload.email,
-    senha: payload.senha || '123456',
+    senha: payload.senha || 'admin',
     nome: payload.nome || payload.email.split('@')[0],
     perfil: payload.perfil || 'professor',
     professorId: payload.professorId || '',
@@ -386,6 +419,8 @@ function handleRegisterUser(payload) {
  * Criação de Reserva com Verificação Anticonflito
  */
 function handleCreateReserva(reservaData) {
+  reservaData.data = normalizeDateStr(reservaData.data);
+  
   const conflict = checkReservaConflict(reservaData);
   if (conflict.hasConflict) {
     return { 
@@ -400,7 +435,7 @@ function handleCreateReserva(reservaData) {
   const newReserva = {
     ...reservaData,
     id: id,
-    status: reservaData.status || 'pendente',
+    status: reservaData.status || 'confirmado',
     criadoEm: now,
     atualizadoEm: now
   };
@@ -422,12 +457,13 @@ function handleCreateReservaBatch(reservaList) {
   const now = new Date().toISOString();
   
   for (const item of reservaList) {
+    item.data = normalizeDateStr(item.data);
     const conflict = checkReservaConflict(item);
     if (!conflict.hasConflict) {
       const newReserva = {
         ...item,
         id: generateId('res'),
-        status: item.status || 'pendente',
+        status: item.status || 'confirmado',
         criadoEm: now,
         atualizadoEm: now
       };
@@ -446,20 +482,23 @@ function handleCreateReservaBatch(reservaList) {
  */
 function checkReservaConflict(newRes, excludeId = '') {
   const reservas = getSheetRows(SHEETS.RESERVAS);
+  const targetDate = normalizeDateStr(newRes.data);
   const targetAulas = Array.isArray(newRes.aulas) ? newRes.aulas : [];
   
   for (const r of reservas) {
-    if (r.id === excludeId) continue;
+    if (String(r.id) === String(excludeId)) continue;
     if (r.status === 'rejeitado') continue;
+    
+    const rDate = normalizeDateStr(r.data);
     
     // Mesmo laboratório, mesma data e mesmo turno
     if (
       String(r.labId) === String(newRes.labId) &&
-      String(r.data) === String(newRes.data) &&
+      rDate === targetDate &&
       String(r.turno) === String(newRes.turno)
     ) {
       const existingAulas = Array.isArray(r.aulas) ? r.aulas : [];
-      const hasIntersection = targetAulas.some(a => existingAulas.includes(a));
+      const hasIntersection = targetAulas.some(a => existingAulas.includes(Number(a)));
       if (hasIntersection) {
         return { hasConflict: true, conflictingReserva: r };
       }
@@ -574,7 +613,6 @@ function generateId(prefix) {
 
 /**
  * Garante que todas as abas e cabeçalhos existam.
- * Cria dados padrão (admin, labs) se a planilha estiver zerada.
  */
 function ensureInitialized(force) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -591,16 +629,15 @@ function ensureInitialized(force) {
       const headers = HEADERS[sheetName];
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       
-      // Formata linha de cabeçalho
       const headerRange = sheet.getRange(1, 1, 1, headers.length);
       headerRange.setFontWeight('bold');
-      headerRange.setBackground('#4F46E5'); // Roxo ETEC/Moderno
+      headerRange.setBackground('#4F46E5');
       headerRange.setFontColor('#FFFFFF');
       sheet.setFrozenRows(1);
     }
   });
   
-  // Remove a aba padrão "Página1" ou "Sheet1" se outras abas foram criadas
+  // Remove a aba padrão se existirem outras abas
   const defaultSheet = ss.getSheetByName('Página1') || ss.getSheetByName('Sheet1');
   if (defaultSheet && ss.getSheets().length > 1) {
     try {
@@ -619,32 +656,6 @@ function ensureInitialized(force) {
       perfil: 'admin',
       professorId: '',
       criadoEm: new Date().toISOString()
-    });
-    
-    appendSheetRow(SHEETS.USUARIOS, {
-      id: 'usr_prof_demo',
-      email: 'professor@escola.edu.br',
-      senha: 'prof',
-      nome: 'Professor Demonstração',
-      perfil: 'professor',
-      professorId: 'prof_demo',
-      criadoEm: new Date().toISOString()
-    });
-  }
-  
-  // Cria laboratórios iniciais se não existirem
-  const labSheet = ss.getSheetByName(SHEETS.LABS);
-  if (labSheet && labSheet.getLastRow() <= 1) {
-    const defaultLabs = [
-      { id: 'lab_1', nome: 'Laboratório 1 - Informática', capacidade: 32, descricao: 'Microcomputadores i5, Projetor interativo e Ar condicionado', recursos: ['computadores', 'projetor', 'ar_condicionado', 'internet'], ativo: true },
-      { id: 'lab_2', nome: 'Laboratório 2 - Redes e Manutenção', capacidade: 28, descricao: 'Racks, switches Cisco, bancadas técnicas e cabeamento', recursos: ['computadores', 'projetor', 'ar_condicionado'], ativo: true },
-      { id: 'lab_3', nome: 'Laboratório 3 - Design e Multimídia', capacidade: 30, descricao: 'Computadores de alta performance para edição gráfica e desenvolvimento', recursos: ['computadores', 'projetor', 'ar_condicionado', 'sistema_som'], ativo: true },
-      { id: 'lab_4', nome: 'Laboratório 4 - Informática Geral', capacidade: 35, descricao: 'Aulas teóricas e práticas com projeção digital', recursos: ['computadores', 'projetor', 'ar_condicionado'], ativo: true }
-    ];
-    defaultLabs.forEach(lab => {
-      lab.criadoEm = new Date().toISOString();
-      lab.atualizadoEm = new Date().toISOString();
-      appendSheetRow(SHEETS.LABS, lab);
     });
   }
 }
