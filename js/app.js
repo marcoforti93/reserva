@@ -7,7 +7,7 @@ import { initAuthObserver, login, logout, getCurrentUser, getUserProfile, isAdmi
 import { initCalendarView, refreshCalendar, destroyCalendarView } from './calendar-view.js';
 import { initReservationForm, openReservationForm } from './reservation-form.js';
 import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
-import { getReservasProfessor, getReservas, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
+import { getReservasProfessor, getReservas, getReservasSemana, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
 import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
 import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader } from './ui-helpers.js';
 import { SCHEDULE_CONFIG, STATUS_CONFIG, getAulaLabel } from './schedule-config.js';
@@ -179,18 +179,7 @@ async function loadMyReservations() {
     // Para admin, mostra todas; para professor, filtra
     let reservas;
     if (isAdmin()) {
-        // Admin vê todas (poderia filtrar aqui)
-        const today = new Date();
-        const dates = [];
-        for (let i = -7; i < 30; i++) {
-            const d = new Date(today);
-            d.setDate(d.getDate() + i);
-            const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            dates.push(iso);
-        }
-        // Firestore 'in' query limit is 30
-        const batch1 = dates.slice(0, 30);
-        reservas = await getReservas_batch(batch1);
+        reservas = await getReservas();
     } else {
         reservas = await getReservasProfessor(profile.professorId || profile.id);
     }
@@ -255,11 +244,7 @@ async function loadMyReservations() {
     container.innerHTML = html;
 }
 
-/**
- * Helper para buscar reservas por batch de datas
- */
-async function getReservas_batch(datesISO) {
-    const { getReservasSemana } = await import('./firestore-service.js');
+function getReservas_batch(datesISO) {
     return getReservasSemana(datesISO);
 }
 

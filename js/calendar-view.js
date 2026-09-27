@@ -9,7 +9,7 @@ import {
     formatDateISO, formatDateBR, getDayLabel, 
     getNextWeekday, getDayName, isToday, addDays, escapeHTML 
 } from './utils.js';
-import { onReservasChange, getLaboratorios, getCursos, getDisciplinas } from './sheet-service.js';
+import { onReservasChange, getLaboratorios, getCursos, getDisciplinas, normalizeDate } from './sheet-service.js';
 import { createSkeletonCards } from './ui-helpers.js';
 
 let currentDate = new Date();
@@ -115,15 +115,17 @@ async function loadDayData() {
     // Remove listener anterior se existente
     if (unsubscribeReservas) unsubscribeReservas();
 
-    // Skeletons de carregamento
+    // Skeletons de carregamento apenas se não houver dados em cache
     const desktopGrid = document.getElementById('desktop-grid');
     const mobileCards = document.getElementById('mobile-cards');
-    if (desktopGrid) desktopGrid.innerHTML = `
-        <div class="p-12 text-center text-gray-400">
-            <div class="loader-spinner mx-auto mb-3"></div>
-            <p class="text-sm font-medium">Carregando horários do dia...</p>
-        </div>`;
-    if (mobileCards) mobileCards.innerHTML = createSkeletonCards(3);
+    if (laboratorios.length === 0) {
+        if (desktopGrid) desktopGrid.innerHTML = `
+            <div class="p-12 text-center text-gray-400">
+                <div class="loader-spinner mx-auto mb-3"></div>
+                <p class="text-sm font-medium">Carregando horários do dia...</p>
+            </div>`;
+        if (mobileCards) mobileCards.innerHTML = createSkeletonCards(3);
+    }
 
     // Escuta reservas para o dia específico em tempo real
     unsubscribeReservas = onReservasChange([dateISO], (reservas) => {
@@ -165,26 +167,27 @@ function getReservaDisplayData(reserva) {
 
     // Se ainda não tiver curso, usa a Turma como referência
     if (!displayCursoNome) {
-        displayCursoNome = reserva.turma || 'Sem curso informado';
+        displayCursoNome = reserva.turmaNome || reserva.turma || 'Sem curso informado';
     }
 
     const professorNome = reserva.professorNome || 'Sem professor';
 
-    // Obtém a sigla da disciplina (usando cache do Firestore ou mapeamento padrão de siglas)
+    // Obtém a sigla da disciplina
     let discSigla = reserva.disciplinaSigla || '';
-    if (!discSigla && reserva.disciplina) {
+    const rawDisc = reserva.disciplinaNome || reserva.disciplina || '';
+    if (!discSigla && rawDisc) {
         const discObj = disciplinasCache.find(d =>
-            d.nome?.toLowerCase().trim() === reserva.disciplina.toLowerCase().trim() ||
-            d.id === reserva.disciplina
+            d.nome?.toLowerCase().trim() === rawDisc.toLowerCase().trim() ||
+            String(d.id) === String(rawDisc)
         );
-        discSigla = discObj?.sigla || getDisciplinaSigla(reserva.disciplina);
+        discSigla = discObj?.sigla || getDisciplinaSigla(rawDisc);
     }
 
     return {
         cursoNome: displayCursoNome,
         cursoSigla: displayCursoSigla,
         professorNome,
-        disciplinaSigla: discSigla || reserva.disciplina || ''
+        disciplinaSigla: discSigla || rawDisc
     };
 }
 
@@ -268,8 +271,8 @@ function renderDesktopGrid() {
 
         labs.forEach(lab => {
             const reserva = reservasCache.find(r =>
-                r.labId === lab.id &&
-                r.data === dateISO &&
+                String(r.labId) === String(lab.id) &&
+                normalizeDate(r.data) === dateISO &&
                 r.turno === currentTurno &&
                 (r.aulas || []).includes(aula.numero)
             );
@@ -377,8 +380,8 @@ function renderMobileCards() {
 
     labs.forEach(lab => {
         const labReservas = reservasCache.filter(r =>
-            r.labId === lab.id &&
-            r.data === dateISO &&
+            String(r.labId) === String(lab.id) &&
+            normalizeDate(r.data) === dateISO &&
             r.turno === currentTurno
         );
 

@@ -17,7 +17,9 @@ export const DEFAULT_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbw
  * Retorna a URL da API ativa (prioriza localStorage para testes rápidos via interface)
  */
 export function getSheetApiUrl() {
-    return localStorage.getItem('reserva_custom_api_url') || DEFAULT_SHEET_API_URL;
+    const custom = localStorage.getItem('reserva_custom_api_url');
+    if (custom && custom.trim().startsWith('http')) return custom.trim();
+    return DEFAULT_SHEET_API_URL;
 }
 
 /**

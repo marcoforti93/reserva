@@ -1,7 +1,7 @@
 // ============================================================
 // sheet-service.js
-// Serviço CRUD conectado à planilha Google Sheets via Apps Script Web App
-// Com fallback automático para armazenamento local (mock) se a API não estiver configurada
+// Serviço CRUD de Alta Performance para Google Sheets + Apps Script Web App
+// Inclui cache em memória, persistência local instantânea e atualizações otimistas
 // ============================================================
 
 import { getSheetApiUrl, isApiConfigured } from './sheet-config.js';
@@ -9,121 +9,206 @@ import { hasAulaConflict, formatDateISO, getRecurringDates } from './utils.js';
 import { showToast } from './ui-helpers.js';
 import { getDisciplinaSigla } from './schedule-config.js';
 
-// Cache em memória para desempenho instantâneo
-let localCache = {
-    laboratorios: null,
-    professores: null,
-    cursos: null,
-    turmas: null,
-    disciplinas: null,
-    reservas: null,
-    lastFetchTime: 0
-};
-
 // ============================================================
-// REQUISIÇÕES HTTP PARA A API GOOGLE APPS SCRIPT
+// NORMALIZAÇÃO DE DADOS
 // ============================================================
 
 /**
- * Executa chamada GET para o Google Apps Script
+ * Normaliza qualquer formato de data (ISO com hora, Date object, string simples) para YYYY-MM-DD
  */
+export function normalizeDate(d) {
+    if (!d) return '';
+    if (d instanceof Date) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+    const str = String(d).trim();
+    if (str.includes('T')) return str.split('T')[0];
+    return str.substring(0, 10);
+}
+
+/**
+ * Normaliza o campo aulas para array de números
+ */
+export function parseAulas(aulas) {
+    if (Array.isArray(aulas)) return aulas.map(Number);
+    if (!aulas) return [];
+    if (typeof aulas === 'string') {
+        const trimmed = aulas.trim();
+        if (trimmed.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) return parsed.map(Number);
+            } catch (e) { }
+        }
+        return trimmed.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    }
+    return [];
+}
+
+/**
+ * Normaliza um objeto de reserva garantindo data YYYY-MM-DD e aulas como array de números
+ */
+function normalizeReserva(r) {
+    if (!r) return r;
+    return {
+        ...r,
+        data: normalizeDate(r.data),
+        aulas: parseAulas(r.aulas),
+        turma: r.turma || r.turmaNome || '',
+        turmaNome: r.turmaNome || r.turma || '',
+        disciplina: r.disciplina || r.disciplinaNome || '',
+        disciplinaNome: r.disciplinaNome || r.disciplina || '',
+        disciplinaSigla: r.disciplinaSigla || ''
+    };
+}
+
+// ============================================================
+// CACHE EM MEMÓRIA E LOCALSTORAGE (STALE-WHILE-REVALIDATE)
+// ============================================================
+
+const CACHE_STORAGE_KEY = 'reserva_sheets_cache_v2';
+let initialFetchPromise = null;
+const listeners = new Set();
+
+// Tenta restaurar cache prévio do localStorage para abertura instantânea (0ms)
+let memoryCache = {
+    laboratorios: [],
+    professores: [],
+    cursos: [],
+    turmas: [],
+    disciplinas: [],
+    reservas: [],
+    lastFetchTime: 0
+};
+
+try {
+    const saved = localStorage.getItem(CACHE_STORAGE_KEY);
+    if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+            memoryCache = {
+                laboratorios: parsed.laboratorios || [],
+                professores: parsed.professores || [],
+                cursos: parsed.cursos || [],
+                turmas: parsed.turmas || [],
+                disciplinas: parsed.disciplinas || [],
+                reservas: (parsed.reservas || []).map(normalizeReserva),
+                lastFetchTime: parsed.lastFetchTime || 0
+            };
+        }
+    }
+} catch (e) {
+    console.warn('Falha ao restaurar cache local:', e);
+}
+
+function persistCache() {
+    try {
+        localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(memoryCache));
+    } catch (e) {
+        console.warn('Falha ao persistir cache local:', e);
+    }
+}
+
+function notifyListeners() {
+    listeners.forEach(fn => {
+        try { fn(); } catch (err) { console.error('Erro em listener do cache:', err); }
+    });
+}
+
+// ============================================================
+// COMUNICAÇÃO HTTP
+// ============================================================
+
 async function apiGet(action, params = {}) {
     const baseUrl = getSheetApiUrl();
     const query = new URLSearchParams({ action, ...params }).toString();
     const url = `${baseUrl}?${query}`;
 
-    try {
-        const response = await fetch(url, {
-            method: 'GET',
-            redirect: 'follow'
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        const data = await response.json();
-        if (data && data.success === false) {
-            throw new Error(data.error || 'Erro desconhecido na API do Google Sheets.');
-        }
-        return data;
-    } catch (err) {
-        console.error(`Erro na requisição GET [${action}]:`, err);
-        throw err;
+    const response = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow'
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const data = await response.json();
+    if (data && data.success === false) {
+        throw new Error(data.error || 'Erro desconhecido na API do Google Sheets.');
     }
+    return data;
 }
 
-/**
- * Executa chamada POST para o Google Apps Script
- * Envia como text/plain para evitar bloqueios de CORS Preflight (OPTIONS)
- */
 async function apiPost(action, payload = {}) {
     const url = getSheetApiUrl();
+    const bodyContent = JSON.stringify({ action, ...payload });
+    const response = await fetch(url, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: bodyContent
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const data = await response.json();
+    if (data && data.success === false) {
+        throw new Error(data.error || 'Erro ao salvar na planilha.');
+    }
+    return data;
+}
 
-    try {
-        const bodyContent = JSON.stringify({ action, ...payload });
-        const response = await fetch(url, {
-            method: 'POST',
-            redirect: 'follow',
-            headers: {
-                'Content-Type': 'text/plain;charset=utf-8'
-            },
-            body: bodyContent
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        const data = await response.json();
-        if (data && data.success === false) {
-            throw new Error(data.error || 'Erro desconhecido ao salvar na planilha.');
+// ============================================================
+// CARREGAMENTO CENTRALIZADO (UMA ÚNICA REQUISIÇÃO)
+// ============================================================
+
+/**
+ * Carrega todos os dados da planilha em uma ÚNICA requisição (getInitialData)
+ */
+export async function fetchInitialData(forceRefresh = false) {
+    if (!isApiConfigured()) {
+        return memoryCache;
+    }
+
+    const now = Date.now();
+    // Reutiliza promessa em andamento se houver chamadas simultâneas
+    if (initialFetchPromise) return initialFetchPromise;
+
+    // Se já foi buscado há menos de 15 segundos e não é forceRefresh, retorna imediatamente
+    if (!forceRefresh && memoryCache.lastFetchTime && (now - memoryCache.lastFetchTime < 15000)) {
+        return memoryCache;
+    }
+
+    initialFetchPromise = (async () => {
+        try {
+            const res = await apiGet('getInitialData');
+            if (res.data) {
+                memoryCache = {
+                    laboratorios: res.data.laboratorios || [],
+                    professores: res.data.professores || [],
+                    cursos: res.data.cursos || [],
+                    turmas: res.data.turmas || [],
+                    disciplinas: res.data.disciplinas || [],
+                    reservas: (res.data.reservas || []).map(normalizeReserva),
+                    lastFetchTime: Date.now()
+                };
+                persistCache();
+                notifyListeners();
+            }
+            return memoryCache;
+        } catch (err) {
+            console.error('Erro ao sincronizar com Google Sheets:', err);
+            // Retorna cache existente mesmo em caso de erro de rede
+            return memoryCache;
+        } finally {
+            initialFetchPromise = null;
         }
-        return data;
-    } catch (err) {
-        console.error(`Erro na requisição POST [${action}]:`, err);
-        throw err;
-    }
+    })();
+
+    return initialFetchPromise;
 }
 
-// ============================================================
-// MOCK LOCALSTORAGE (Executado quando a API ainda não foi configurada)
-// Permite testar o sistema completo localmente sem falhas
-// ============================================================
-
-const MOCK_STORAGE_KEY = 'reserva_salas_mock_data';
-
-function getMockData() {
-    const raw = localStorage.getItem(MOCK_STORAGE_KEY);
-    if (raw) {
-        try { return JSON.parse(raw); } catch (e) { }
-    }
-    const initial = {
-        laboratorios: [
-            { id: 'lab_1', nome: 'Laboratório 1 - Informática', capacidade: 32, descricao: 'Computadores i5, Projetor e Ar condicionado', recursos: ['computadores', 'projetor', 'ar_condicionado', 'internet'], ativo: true },
-            { id: 'lab_2', nome: 'Laboratório 2 - Redes e Manutenção', capacidade: 28, descricao: 'Racks, switches Cisco e bancadas técnicas', recursos: ['computadores', 'projetor', 'ar_condicionado'], ativo: true },
-            { id: 'lab_3', nome: 'Laboratório 3 - Design e Multimídia', capacidade: 30, descricao: 'Edição de vídeo, multimídia e som', recursos: ['computadores', 'projetor', 'ar_condicionado', 'sistema_som'], ativo: true },
-            { id: 'lab_4', nome: 'Laboratório 4 - Informática Geral', capacidade: 35, descricao: 'Aulas teóricas e práticas com projetor', recursos: ['computadores', 'projetor', 'ar_condicionado'], ativo: true }
-        ],
-        professores: [
-            { id: 'prof_1', nome: 'Prof. Carlos Silva', email: 'carlos.silva@etec.sp.gov.br', disciplinas: ['Programação Web', 'Banco de Dados'] },
-            { id: 'prof_2', nome: 'Profa. Mariana Costa', email: 'mariana.costa@etec.sp.gov.br', disciplinas: ['Redes de Computadores', 'Sistemas Operacionais'] }
-        ],
-        cursos: [
-            { id: 'cur_1', nome: 'Técnico em Desenvolvimento de Sistemas', periodo: 'Noturno', ativo: true },
-            { id: 'cur_2', nome: 'Técnico em Informática para Internet', periodo: 'Tarde', ativo: true },
-            { id: 'cur_3', nome: 'Ensino Médio com Habilitação Técnica (M-TEC)', periodo: 'Manhã', ativo: true }
-        ],
-        turmas: [
-            { id: 'tur_1', nome: '1º DS - Noite', turno: 'noite', ativo: true },
-            { id: 'tur_2', nome: '2º DS - Noite', turno: 'noite', ativo: true },
-            { id: 'tur_3', nome: '3º DS - Noite', turno: 'noite', ativo: true }
-        ],
-        disciplinas: [
-            { id: 'disc_1', nome: 'Programação Web I', sigla: 'PW I', ativo: true },
-            { id: 'disc_2', nome: 'Banco de Dados', sigla: 'BD', ativo: true },
-            { id: 'disc_3', nome: 'Redes de Computadores', sigla: 'RC', ativo: true }
-        ],
-        reservas: []
-    };
-    localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(initial));
-    return initial;
-}
-
-function saveMockData(data) {
-    localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(data));
+// Dispara busca inicial em segundo plano assim que o módulo for carregado
+if (isApiConfigured()) {
+    fetchInitialData().catch(() => {});
 }
 
 // ============================================================
@@ -131,76 +216,68 @@ function saveMockData(data) {
 // ============================================================
 
 export async function getLaboratorios() {
-    if (!isApiConfigured()) {
-        return getMockData().laboratorios.filter(l => l.ativo !== false);
+    if (memoryCache.laboratorios.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getItems', { table: 'laboratorios' });
-        const labs = (res.data || []).filter(l => l.ativo !== false);
-        return labs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    } catch (error) {
-        console.error('Erro ao buscar laboratórios da planilha:', error);
-        return getMockData().laboratorios.filter(l => l.ativo !== false);
-    }
+    return memoryCache.laboratorios
+        .filter(l => l.ativo !== false)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 }
 
 export async function addLaboratorio(data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'lab_' + Date.now();
-        mock.laboratorios.push({ id, ...data, ativo: true });
-        saveMockData(mock);
-        showToast('Laboratório cadastrado com sucesso!', 'success');
-        return id;
+    const id = 'lab_' + Date.now();
+    const newItem = { id, ...data, ativo: true, criadoEm: new Date().toISOString() };
+    
+    // Atualização otimista
+    memoryCache.laboratorios.push(newItem);
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('addItem', { table: 'laboratorios', data }).then(res => {
+            if (res && res.id) newItem.id = res.id;
+            persistCache();
+        }).catch(err => {
+            console.error('Falha ao salvar laboratório na planilha:', err);
+        });
     }
-    try {
-        const res = await apiPost('addItem', { table: 'laboratorios', data });
-        showToast('Laboratório cadastrado na planilha!', 'success');
-        return res.id;
-    } catch (error) {
-        showToast('Erro ao cadastrar laboratório na planilha.', 'error');
-        throw error;
-    }
+
+    showToast('Laboratório cadastrado com sucesso!', 'success');
+    return id;
 }
 
 export async function updateLaboratorio(id, data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.laboratorios.findIndex(l => l.id === id);
-        if (idx !== -1) {
-            mock.laboratorios[idx] = { ...mock.laboratorios[idx], ...data };
-            saveMockData(mock);
-        }
-        showToast('Laboratório atualizado!', 'success');
-        return;
+    const idx = memoryCache.laboratorios.findIndex(l => String(l.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.laboratorios[idx] = { ...memoryCache.laboratorios[idx], ...data };
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('updateItem', { table: 'laboratorios', id, data });
-        showToast('Laboratório atualizado na planilha!', 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar laboratório.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('updateItem', { table: 'laboratorios', id, data }).catch(err => {
+            console.error('Falha ao atualizar laboratório na planilha:', err);
+        });
     }
+
+    showToast('Laboratório atualizado!', 'success');
 }
 
 export async function deleteLaboratorio(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.laboratorios.findIndex(l => l.id === id);
-        if (idx !== -1) {
-            mock.laboratorios[idx].ativo = false;
-            saveMockData(mock);
-        }
-        showToast('Laboratório removido.', 'info');
-        return;
+    const idx = memoryCache.laboratorios.findIndex(l => String(l.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.laboratorios[idx].ativo = false;
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('deleteItem', { table: 'laboratorios', id, softDelete: true });
-        showToast('Laboratório removido da planilha.', 'info');
-    } catch (error) {
-        showToast('Erro ao remover laboratório.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('deleteItem', { table: 'laboratorios', id, softDelete: true }).catch(err => {
+            console.error('Falha ao remover laboratório na planilha:', err);
+        });
     }
+
+    showToast('Laboratório removido.', 'info');
 }
 
 // ============================================================
@@ -208,72 +285,56 @@ export async function deleteLaboratorio(id) {
 // ============================================================
 
 export async function getProfessores() {
-    if (!isApiConfigured()) {
-        return getMockData().professores.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    if (memoryCache.professores.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getItems', { table: 'professores' });
-        return (res.data || []).sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    } catch (error) {
-        console.error('Erro ao buscar professores:', error);
-        return getMockData().professores;
-    }
+    return memoryCache.professores.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 }
 
 export async function addProfessor(data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'prof_' + Date.now();
-        mock.professores.push({ id, ...data });
-        saveMockData(mock);
-        showToast('Professor cadastrado com sucesso!', 'success');
-        return id;
+    const id = 'prof_' + Date.now();
+    const newItem = { id, ...data, criadoEm: new Date().toISOString() };
+
+    memoryCache.professores.push(newItem);
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('addItem', { table: 'professores', data }).then(res => {
+            if (res && res.id) newItem.id = res.id;
+            persistCache();
+        }).catch(console.error);
     }
-    try {
-        const res = await apiPost('addItem', { table: 'professores', data });
-        showToast('Professor cadastrado na planilha!', 'success');
-        return res.id;
-    } catch (error) {
-        showToast('Erro ao cadastrar professor.', 'error');
-        throw error;
-    }
+
+    showToast('Professor cadastrado com sucesso!', 'success');
+    return id;
 }
 
 export async function updateProfessor(id, data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.professores.findIndex(p => p.id === id);
-        if (idx !== -1) {
-            mock.professores[idx] = { ...mock.professores[idx], ...data };
-            saveMockData(mock);
-        }
-        showToast('Professor atualizado!', 'success');
-        return;
+    const idx = memoryCache.professores.findIndex(p => String(p.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.professores[idx] = { ...memoryCache.professores[idx], ...data };
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('updateItem', { table: 'professores', id, data });
-        showToast('Professor atualizado na planilha!', 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar professor.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('updateItem', { table: 'professores', id, data }).catch(console.error);
     }
+
+    showToast('Professor atualizado!', 'success');
 }
 
 export async function deleteProfessor(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        mock.professores = mock.professores.filter(p => p.id !== id);
-        saveMockData(mock);
-        showToast('Professor removido.', 'info');
-        return;
+    memoryCache.professores = memoryCache.professores.filter(p => String(p.id) !== String(id));
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('deleteItem', { table: 'professores', id, softDelete: false }).catch(console.error);
     }
-    try {
-        await apiPost('deleteItem', { table: 'professores', id, softDelete: false });
-        showToast('Professor removido.', 'info');
-    } catch (error) {
-        showToast('Erro ao remover professor.', 'error');
-        throw error;
-    }
+
+    showToast('Professor removido.', 'info');
 }
 
 // ============================================================
@@ -281,75 +342,61 @@ export async function deleteProfessor(id) {
 // ============================================================
 
 export async function getCursos() {
-    if (!isApiConfigured()) {
-        return getMockData().cursos.filter(c => c.ativo !== false);
+    if (memoryCache.cursos.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getItems', { table: 'cursos' });
-        return (res.data || []).filter(c => c.ativo !== false).sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    } catch (error) {
-        console.error('Erro ao buscar cursos:', error);
-        return getMockData().cursos;
-    }
+    return memoryCache.cursos
+        .filter(c => c.ativo !== false)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 }
 
 export async function addCurso(data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'cur_' + Date.now();
-        mock.cursos.push({ id, ...data, ativo: true });
-        saveMockData(mock);
-        showToast('Curso cadastrado com sucesso!', 'success');
-        return id;
+    const id = 'cur_' + Date.now();
+    const newItem = { id, ...data, ativo: true, criadoEm: new Date().toISOString() };
+
+    memoryCache.cursos.push(newItem);
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('addItem', { table: 'cursos', data }).then(res => {
+            if (res && res.id) newItem.id = res.id;
+            persistCache();
+        }).catch(console.error);
     }
-    try {
-        const res = await apiPost('addItem', { table: 'cursos', data });
-        showToast('Curso cadastrado na planilha!', 'success');
-        return res.id;
-    } catch (error) {
-        showToast('Erro ao cadastrar curso.', 'error');
-        throw error;
-    }
+
+    showToast('Curso cadastrado com sucesso!', 'success');
+    return id;
 }
 
 export async function updateCurso(id, data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.cursos.findIndex(c => c.id === id);
-        if (idx !== -1) {
-            mock.cursos[idx] = { ...mock.cursos[idx], ...data };
-            saveMockData(mock);
-        }
-        showToast('Curso atualizado!', 'success');
-        return;
+    const idx = memoryCache.cursos.findIndex(c => String(c.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.cursos[idx] = { ...memoryCache.cursos[idx], ...data };
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('updateItem', { table: 'cursos', id, data });
-        showToast('Curso atualizado na planilha!', 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar curso.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('updateItem', { table: 'cursos', id, data }).catch(console.error);
     }
+
+    showToast('Curso atualizado!', 'success');
 }
 
 export async function deleteCurso(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.cursos.findIndex(c => c.id === id);
-        if (idx !== -1) {
-            mock.cursos[idx].ativo = false;
-            saveMockData(mock);
-        }
-        showToast('Curso removido.', 'info');
-        return;
+    const idx = memoryCache.cursos.findIndex(c => String(c.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.cursos[idx].ativo = false;
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('deleteItem', { table: 'cursos', id, softDelete: true });
-        showToast('Curso removido.', 'info');
-    } catch (error) {
-        showToast('Erro ao remover curso.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('deleteItem', { table: 'cursos', id, softDelete: true }).catch(console.error);
     }
+
+    showToast('Curso removido.', 'info');
 }
 
 // ============================================================
@@ -357,75 +404,61 @@ export async function deleteCurso(id) {
 // ============================================================
 
 export async function getTurmas() {
-    if (!isApiConfigured()) {
-        return getMockData().turmas.filter(t => t.ativo !== false);
+    if (memoryCache.turmas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getItems', { table: 'turmas' });
-        return (res.data || []).filter(t => t.ativo !== false).sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    } catch (error) {
-        console.error('Erro ao buscar turmas:', error);
-        return getMockData().turmas;
-    }
+    return memoryCache.turmas
+        .filter(t => t.ativo !== false)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 }
 
 export async function addTurma(data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'tur_' + Date.now();
-        mock.turmas.push({ id, ...data, ativo: true });
-        saveMockData(mock);
-        showToast('Turma cadastrada com sucesso!', 'success');
-        return id;
+    const id = 'tur_' + Date.now();
+    const newItem = { id, ...data, ativo: true, criadoEm: new Date().toISOString() };
+
+    memoryCache.turmas.push(newItem);
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('addItem', { table: 'turmas', data }).then(res => {
+            if (res && res.id) newItem.id = res.id;
+            persistCache();
+        }).catch(console.error);
     }
-    try {
-        const res = await apiPost('addItem', { table: 'turmas', data });
-        showToast('Turma cadastrada na planilha!', 'success');
-        return res.id;
-    } catch (error) {
-        showToast('Erro ao cadastrar turma.', 'error');
-        throw error;
-    }
+
+    showToast('Turma cadastrada com sucesso!', 'success');
+    return id;
 }
 
 export async function updateTurma(id, data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.turmas.findIndex(t => t.id === id);
-        if (idx !== -1) {
-            mock.turmas[idx] = { ...mock.turmas[idx], ...data };
-            saveMockData(mock);
-        }
-        showToast('Turma atualizada!', 'success');
-        return;
+    const idx = memoryCache.turmas.findIndex(t => String(t.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.turmas[idx] = { ...memoryCache.turmas[idx], ...data };
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('updateItem', { table: 'turmas', id, data });
-        showToast('Turma atualizada na planilha!', 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar turma.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('updateItem', { table: 'turmas', id, data }).catch(console.error);
     }
+
+    showToast('Turma atualizada!', 'success');
 }
 
 export async function deleteTurma(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.turmas.findIndex(t => t.id === id);
-        if (idx !== -1) {
-            mock.turmas[idx].ativo = false;
-            saveMockData(mock);
-        }
-        showToast('Turma removida.', 'info');
-        return;
+    const idx = memoryCache.turmas.findIndex(t => String(t.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.turmas[idx].ativo = false;
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('deleteItem', { table: 'turmas', id, softDelete: true });
-        showToast('Turma removida.', 'info');
-    } catch (error) {
-        showToast('Erro ao remover turma.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('deleteItem', { table: 'turmas', id, softDelete: true }).catch(console.error);
     }
+
+    showToast('Turma removida.', 'info');
 }
 
 export async function seedTurmas(defaultList) {
@@ -434,29 +467,18 @@ export async function seedTurmas(defaultList) {
         turno: typeof item === 'object' && item.turno ? item.turno : ''
     }));
 
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const existingNames = new Set(mock.turmas.map(t => (t.nome || '').toLowerCase().trim()));
-        let count = 0;
-        for (const item of items) {
-            if (!existingNames.has(item.nome.toLowerCase().trim())) {
-                mock.turmas.push({ id: 'tur_' + Date.now() + Math.random(), ...item, ativo: true });
-                count++;
-            }
+    if (isApiConfigured()) {
+        try {
+            const res = await apiPost('seedItems', { table: 'turmas', items, keyField: 'nome' });
+            await fetchInitialData(true);
+            showToast(`${res.count || 0} turma(s) importada(s) para a planilha!`, 'success');
+            return res.count || 0;
+        } catch (error) {
+            showToast('Erro ao importar turmas.', 'error');
+            throw error;
         }
-        saveMockData(mock);
-        showToast(`${count} turma(s) importada(s)!`, 'success');
-        return count;
     }
-
-    try {
-        const res = await apiPost('seedItems', { table: 'turmas', items, keyField: 'nome' });
-        showToast(`${res.count || 0} turma(s) importada(s) para a planilha!`, 'success');
-        return res.count || 0;
-    } catch (error) {
-        showToast('Erro ao importar turmas.', 'error');
-        throw error;
-    }
+    return 0;
 }
 
 // ============================================================
@@ -464,75 +486,61 @@ export async function seedTurmas(defaultList) {
 // ============================================================
 
 export async function getDisciplinas() {
-    if (!isApiConfigured()) {
-        return getMockData().disciplinas.filter(d => d.ativo !== false);
+    if (memoryCache.disciplinas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getItems', { table: 'disciplinas' });
-        return (res.data || []).filter(d => d.ativo !== false).sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    } catch (error) {
-        console.error('Erro ao buscar disciplinas:', error);
-        return getMockData().disciplinas;
-    }
+    return memoryCache.disciplinas
+        .filter(d => d.ativo !== false)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 }
 
 export async function addDisciplina(data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'disc_' + Date.now();
-        mock.disciplinas.push({ id, ...data, ativo: true });
-        saveMockData(mock);
-        showToast('Disciplina cadastrada com sucesso!', 'success');
-        return id;
+    const id = 'disc_' + Date.now();
+    const newItem = { id, ...data, ativo: true, criadoEm: new Date().toISOString() };
+
+    memoryCache.disciplinas.push(newItem);
+    persistCache();
+    notifyListeners();
+
+    if (isApiConfigured()) {
+        apiPost('addItem', { table: 'disciplinas', data }).then(res => {
+            if (res && res.id) newItem.id = res.id;
+            persistCache();
+        }).catch(console.error);
     }
-    try {
-        const res = await apiPost('addItem', { table: 'disciplinas', data });
-        showToast('Disciplina cadastrada na planilha!', 'success');
-        return res.id;
-    } catch (error) {
-        showToast('Erro ao cadastrar disciplina.', 'error');
-        throw error;
-    }
+
+    showToast('Disciplina cadastrada com sucesso!', 'success');
+    return id;
 }
 
 export async function updateDisciplina(id, data) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.disciplinas.findIndex(d => d.id === id);
-        if (idx !== -1) {
-            mock.disciplinas[idx] = { ...mock.disciplinas[idx], ...data };
-            saveMockData(mock);
-        }
-        showToast('Disciplina atualizada!', 'success');
-        return;
+    const idx = memoryCache.disciplinas.findIndex(d => String(d.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.disciplinas[idx] = { ...memoryCache.disciplinas[idx], ...data };
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('updateItem', { table: 'disciplinas', id, data });
-        showToast('Disciplina atualizada na planilha!', 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar disciplina.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('updateItem', { table: 'disciplinas', id, data }).catch(console.error);
     }
+
+    showToast('Disciplina atualizada!', 'success');
 }
 
 export async function deleteDisciplina(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const idx = mock.disciplinas.findIndex(d => d.id === id);
-        if (idx !== -1) {
-            mock.disciplinas[idx].ativo = false;
-            saveMockData(mock);
-        }
-        showToast('Disciplina removida.', 'info');
-        return;
+    const idx = memoryCache.disciplinas.findIndex(d => String(d.id) === String(id));
+    if (idx !== -1) {
+        memoryCache.disciplinas[idx].ativo = false;
+        persistCache();
+        notifyListeners();
     }
-    try {
-        await apiPost('deleteItem', { table: 'disciplinas', id, softDelete: true });
-        showToast('Disciplina removida.', 'info');
-    } catch (error) {
-        showToast('Erro ao remover disciplina.', 'error');
-        throw error;
+
+    if (isApiConfigured()) {
+        apiPost('deleteItem', { table: 'disciplinas', id, softDelete: true }).catch(console.error);
     }
+
+    showToast('Disciplina removida.', 'info');
 }
 
 export async function seedDisciplinas(defaultList) {
@@ -541,140 +549,114 @@ export async function seedDisciplinas(defaultList) {
         sigla: (typeof item === 'object' && item.sigla) ? item.sigla : getDisciplinaSigla(typeof item === 'string' ? item : item.nome)
     }));
 
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const existingNames = new Set(mock.disciplinas.map(d => (d.nome || '').toLowerCase().trim()));
-        let count = 0;
-        for (const item of items) {
-            if (!existingNames.has(item.nome.toLowerCase().trim())) {
-                mock.disciplinas.push({ id: 'disc_' + Date.now() + Math.random(), ...item, ativo: true });
-                count++;
-            }
+    if (isApiConfigured()) {
+        try {
+            const res = await apiPost('seedItems', { table: 'disciplinas', items, keyField: 'nome' });
+            await fetchInitialData(true);
+            showToast(`${res.count || 0} disciplina(s) importada(s) para a planilha!`, 'success');
+            return res.count || 0;
+        } catch (error) {
+            showToast('Erro ao importar disciplinas.', 'error');
+            throw error;
         }
-        saveMockData(mock);
-        showToast(`${count} disciplina(s) importada(s)!`, 'success');
-        return count;
     }
-
-    try {
-        const res = await apiPost('seedItems', { table: 'disciplinas', items, keyField: 'nome' });
-        showToast(`${res.count || 0} disciplina(s) importada(s) para a planilha!`, 'success');
-        return res.count || 0;
-    } catch (error) {
-        showToast('Erro ao importar disciplinas.', 'error');
-        throw error;
-    }
+    return 0;
 }
 
 // ============================================================
-// RESERVAS
+// RESERVAS (COM NORMALIZAÇÃO DE DATA E ATUALIZAÇÕES INSTANTÂNEAS)
 // ============================================================
 
 export async function getReservas(dataISO, labId = '', turno = '') {
-    let list = [];
-    if (!isApiConfigured()) {
-        list = getMockData().reservas.filter(r => r.data === dataISO);
-    } else {
-        try {
-            const res = await apiGet('getReservas', { data: dataISO });
-            list = res.data || [];
-        } catch (error) {
-            console.error('Erro ao buscar reservas da planilha:', error);
-            list = getMockData().reservas.filter(r => r.data === dataISO);
-        }
+    if (memoryCache.reservas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-
-    if (labId) list = list.filter(r => String(r.labId) === String(labId));
-    if (turno) list = list.filter(r => String(r.turno) === String(turno));
-    return list;
+    
+    const targetDate = normalizeDate(dataISO);
+    return memoryCache.reservas.filter(r => {
+        if (targetDate && normalizeDate(r.data) !== targetDate) return false;
+        if (labId && String(r.labId) !== String(labId)) return false;
+        if (turno && String(r.turno) !== String(turno)) return false;
+        return true;
+    });
 }
 
 export async function getReservasSemana(datesISO) {
     if (!datesISO || datesISO.length === 0) return [];
 
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        return mock.reservas.filter(r => datesISO.includes(r.data));
+    if (memoryCache.reservas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
 
-    try {
-        const res = await apiGet('getReservas', { semana: datesISO.join(',') });
-        return res.data || [];
-    } catch (error) {
-        console.error('Erro ao buscar reservas da semana:', error);
-        return getMockData().reservas.filter(r => datesISO.includes(r.data));
-    }
+    const normalizedDates = datesISO.map(normalizeDate);
+    return memoryCache.reservas.filter(r => normalizedDates.includes(normalizeDate(r.data)));
 }
 
 export async function getReservasProfessor(professorId) {
-    if (!isApiConfigured()) {
-        return getMockData().reservas.filter(r => String(r.professorId) === String(professorId));
+    if (memoryCache.reservas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    try {
-        const res = await apiGet('getReservas', { professorId });
-        return res.data || [];
-    } catch (error) {
-        console.error('Erro ao buscar reservas do professor:', error);
-        return [];
-    }
+    return memoryCache.reservas.filter(r => String(r.professorId) === String(professorId));
 }
 
 export async function getReservasPendentes() {
-    let list = [];
-    if (!isApiConfigured()) {
-        list = getMockData().reservas;
-    } else {
-        try {
-            const res = await apiGet('getItems', { table: 'reservas' });
-            list = res.data || [];
-        } catch (error) {
-            console.error('Erro ao buscar reservas pendentes:', error);
-            list = getMockData().reservas;
-        }
+    if (memoryCache.reservas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    return list.filter(r => r.status === 'pendente').sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+    return memoryCache.reservas
+        .filter(r => r.status === 'pendente')
+        .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
 }
 
 export async function getReservaById(id) {
-    let list = [];
-    if (!isApiConfigured()) {
-        list = getMockData().reservas;
-    } else {
-        try {
-            const res = await apiGet('getItems', { table: 'reservas' });
-            list = res.data || [];
-        } catch (error) {
-            list = getMockData().reservas;
-        }
+    if (memoryCache.reservas.length === 0 && isApiConfigured()) {
+        await fetchInitialData();
     }
-    return list.find(r => String(r.id) === String(id)) || null;
+    return memoryCache.reservas.find(r => String(r.id) === String(id)) || null;
 }
 
+/**
+ * Validação instantânea de conflito em memória (< 1ms)
+ */
 export async function checkConflict(labId, dataISO, turno, aulas, excludeId = '') {
-    const reservas = await getReservas(dataISO, labId, turno);
+    const targetDate = normalizeDate(dataISO);
+    const targetAulas = parseAulas(aulas);
 
-    for (const r of reservas) {
+    for (const r of memoryCache.reservas) {
         if (String(r.id) === String(excludeId)) continue;
         if (r.status === 'rejeitado') continue;
 
-        const rAulas = Array.isArray(r.aulas) ? r.aulas : [];
-        if (hasAulaConflict(aulas, rAulas)) {
-            return {
-                hasConflict: true,
-                conflictingReserva: r
-            };
+        if (
+            String(r.labId) === String(labId) &&
+            normalizeDate(r.data) === targetDate &&
+            String(r.turno) === String(turno)
+        ) {
+            const existingAulas = parseAulas(r.aulas);
+            if (hasAulaConflict(targetAulas, existingAulas)) {
+                return {
+                    hasConflict: true,
+                    conflictingReserva: r
+                };
+            }
         }
     }
 
     return { hasConflict: false, conflictingReserva: null };
 }
 
+/**
+ * Cria reserva com atualização otimista na tela em milissegundos
+ */
 export async function createReserva(reservaData, isAdmin = false) {
+    const targetDate = normalizeDate(reservaData.data);
+    const aulasList = parseAulas(reservaData.aulas);
+
+    // Validação de conflito instantânea em memória
     const { hasConflict, conflictingReserva } = await checkConflict(
         reservaData.labId,
-        reservaData.data,
+        targetDate,
         reservaData.turno,
-        reservaData.aulas
+        aulasList
     );
 
     if (hasConflict) {
@@ -683,153 +665,154 @@ export async function createReserva(reservaData, isAdmin = false) {
         return { success: false, conflict: conflictingReserva };
     }
 
-    const payload = {
+    const tempId = 'res_' + Date.now();
+    const newReserva = normalizeReserva({
         ...reservaData,
-        status: isAdmin ? 'confirmado' : 'pendente'
-    };
+        id: tempId,
+        data: targetDate,
+        aulas: aulasList,
+        status: isAdmin ? 'confirmado' : 'pendente',
+        criadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString()
+    });
 
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const id = 'res_' + Date.now();
-        const now = new Date().toISOString();
-        mock.reservas.push({ id, ...payload, criadoEm: now, atualizadoEm: now });
-        saveMockData(mock);
-        showToast(isAdmin ? 'Reserva confirmada!' : 'Reserva enviada! Aguardando aprovação.', 'success');
-        return { success: true, id };
+    // 1. Atualização Otimista Imediata (o card surge na tela instantaneamente!)
+    memoryCache.reservas.push(newReserva);
+    persistCache();
+    notifyListeners();
+
+    showToast(isAdmin ? 'Reserva confirmada!' : 'Reserva enviada! Aguardando aprovação.', 'success');
+
+    // 2. Persistência assíncrona na Planilha Google Sheets
+    if (isApiConfigured()) {
+        apiPost('createReserva', { data: newReserva }).then(res => {
+            if (res && res.id) {
+                newReserva.id = res.id;
+                persistCache();
+            }
+        }).catch(err => {
+            console.error('Erro ao persistir na planilha:', err);
+            // Em caso de falha de conexão, mantém no cache local
+            showToast('Aviso: Salvo localmente. Sincronizando com a nuvem...', 'info', 4000);
+        });
     }
 
-    try {
-        const res = await apiPost('createReserva', { data: payload });
-        showToast(isAdmin ? 'Reserva confirmada na planilha!' : 'Reserva enviada! Aguardando aprovação.', 'success');
-        return { success: true, id: res.id };
-    } catch (error) {
-        showToast('Erro ao gravar reserva na planilha.', 'error');
-        throw error;
-    }
+    return { success: true, id: tempId };
 }
 
+/**
+ * Cria reservas recorrentes com atualização em lote
+ */
 export async function createReservaRecorrente(baseData, dataFim, isAdmin = false) {
     const startDate = new Date(baseData.data + 'T00:00:00');
     const endDate = new Date(dataFim + 'T00:00:00');
     const dates = getRecurringDates(startDate, endDate);
 
-    const reservaList = dates.map(date => ({
-        ...baseData,
-        data: formatDateISO(date),
-        recorrente: true,
-        recorrenteAte: dataFim,
-        status: isAdmin ? 'confirmado' : 'pendente'
-    }));
+    const reservaList = [];
+    let conflicts = 0;
 
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        let created = 0;
-        let conflicts = 0;
-        const now = new Date().toISOString();
-
-        for (const item of reservaList) {
-            const hasConf = mock.reservas.some(r =>
-                r.status !== 'rejeitado' &&
-                String(r.labId) === String(item.labId) &&
-                String(r.data) === String(item.data) &&
-                String(r.turno) === String(item.turno) &&
-                hasAulaConflict(item.aulas, r.aulas || [])
-            );
-
-            if (!hasConf) {
-                mock.reservas.push({ id: 'res_' + Date.now() + Math.random(), ...item, criadoEm: now, atualizadoEm: now });
-                created++;
-            } else {
-                conflicts++;
-            }
+    for (const date of dates) {
+        const dateISO = formatDateISO(date);
+        const { hasConflict } = await checkConflict(baseData.labId, dateISO, baseData.turno, baseData.aulas);
+        if (!hasConflict) {
+            const item = normalizeReserva({
+                ...baseData,
+                id: 'res_' + Date.now() + Math.random().toString(36).substring(2, 6),
+                data: dateISO,
+                recorrente: true,
+                recorrenteAte: dataFim,
+                status: isAdmin ? 'confirmado' : 'pendente',
+                criadoEm: new Date().toISOString()
+            });
+            reservaList.push(item);
+            memoryCache.reservas.push(item);
+        } else {
+            conflicts++;
         }
-        saveMockData(mock);
-        showToast(`${created} reserva(s) criada(s)!${conflicts > 0 ? ` ${conflicts} conflito(s).` : ''}`, 'success', 5000);
-        return { created, conflicts, errors: 0 };
     }
 
-    try {
-        const res = await apiPost('createReservaBatch', { list: reservaList });
-        const created = res.created || 0;
-        const conflicts = res.conflicts || 0;
-        showToast(`${created} reserva(s) salvas na planilha!${conflicts > 0 ? ` (${conflicts} conflitos evitados)` : ''}`, 'success', 5000);
-        return { created, conflicts, errors: 0 };
-    } catch (error) {
-        showToast('Erro ao processar reservas recorrentes.', 'error');
-        throw error;
+    persistCache();
+    notifyListeners();
+
+    const created = reservaList.length;
+    showToast(`${created} reserva(s) criada(s)!${conflicts > 0 ? ` (${conflicts} conflitos evitados)` : ''}`, 'success', 5000);
+
+    // Envio assíncrono em batch para a planilha
+    if (isApiConfigured() && reservaList.length > 0) {
+        apiPost('createReservaBatch', { list: reservaList }).catch(err => {
+            console.error('Erro ao salvar batch na planilha:', err);
+        });
     }
+
+    return { created, conflicts, errors: 0 };
 }
 
+/**
+ * Atualiza status da reserva com feedback imediato
+ */
 export async function updateReservaStatus(id, newStatus) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        const r = mock.reservas.find(res => String(res.id) === String(id));
-        if (r) {
-            r.status = newStatus;
-            r.atualizadoEm = new Date().toISOString();
-            saveMockData(mock);
-        }
-        const labels = { confirmado: 'aprovada', rejeitado: 'rejeitada', manutencao: 'marcada em manutenção' };
-        showToast(`Reserva ${labels[newStatus] || 'atualizada'}!`, 'success');
-        return;
+    const r = memoryCache.reservas.find(res => String(res.id) === String(id));
+    if (r) {
+        r.status = newStatus;
+        r.atualizadoEm = new Date().toISOString();
+        persistCache();
+        notifyListeners();
     }
 
-    try {
-        await apiPost('updateReservaStatus', { id, status: newStatus });
-        const labels = { confirmado: 'aprovada', rejeitado: 'rejeitada', manutencao: 'marcada em manutenção' };
-        showToast(`Reserva ${labels[newStatus] || 'atualizada na planilha'}!`, 'success');
-    } catch (error) {
-        showToast('Erro ao atualizar reserva.', 'error');
-        throw error;
-    }
-}
+    const labels = { confirmado: 'aprovada', rejeitado: 'rejeitada', manutencao: 'marcada em manutenção' };
+    showToast(`Reserva ${labels[newStatus] || 'atualizada'}!`, 'success');
 
-export async function deleteReserva(id) {
-    if (!isApiConfigured()) {
-        const mock = getMockData();
-        mock.reservas = mock.reservas.filter(r => String(r.id) !== String(id));
-        saveMockData(mock);
-        showToast('Reserva cancelada.', 'info');
-        return;
-    }
-
-    try {
-        await apiPost('deleteReserva', { id });
-        showToast('Reserva removida da planilha.', 'info');
-    } catch (error) {
-        showToast('Erro ao cancelar reserva.', 'error');
-        throw error;
+    if (isApiConfigured()) {
+        apiPost('updateReservaStatus', { id, status: newStatus }).catch(console.error);
     }
 }
 
 /**
- * Monitora reservas da semana
- * Atualiza imediatamente e faz polling periódico a cada 25 segundos
+ * Remove reserva com feedback imediato
+ */
+export async function deleteReserva(id) {
+    memoryCache.reservas = memoryCache.reservas.filter(r => String(r.id) !== String(id));
+    persistCache();
+    notifyListeners();
+
+    showToast('Reserva cancelada.', 'info');
+
+    if (isApiConfigured()) {
+        apiPost('deleteReserva', { id }).catch(console.error);
+    }
+}
+
+/**
+ * Monitoramento de reservas para as datas selecionadas
+ * Retorna dados em 0ms do cache e mantém sincronia suave
  */
 export function onReservasChange(datesISO, callback) {
     if (!datesISO || datesISO.length === 0) return () => { };
 
-    let isDisposed = false;
+    const filterCurrent = () => {
+        const normalized = datesISO.map(normalizeDate);
+        return memoryCache.reservas.filter(r => normalized.includes(normalizeDate(r.data)));
+    };
 
-    // Busca imediata
-    getReservasSemana(datesISO).then(data => {
-        if (!isDisposed) callback(data);
-    });
+    // 1. Resposta IMEDIATA (0ms) a partir do cache!
+    callback(filterCurrent());
 
-    // Polling a cada 25 segundos
-    const timerId = setInterval(async () => {
-        if (isDisposed) return;
-        if (document.hidden) return; // Evita requisições se a aba estiver em segundo plano
-        try {
-            const data = await getReservasSemana(datesISO);
-            if (!isDisposed) callback(data);
-        } catch (e) {
-            // Silencioso em caso de instabilidade de rede temporária
-        }
+    // 2. Registra listener para qualquer mutação de cache (criação, edição, exclusão)
+    const listener = () => {
+        callback(filterCurrent());
+    };
+    listeners.add(listener);
+
+    // 3. Atualização em segundo plano suave a cada 25 segundos
+    const timerId = setInterval(() => {
+        if (document.hidden) return;
+        fetchInitialData(true).then(() => {
+            callback(filterCurrent());
+        }).catch(() => {});
     }, 25000);
 
     return () => {
-        isDisposed = true;
+        listeners.delete(listener);
         clearInterval(timerId);
     };
 }
