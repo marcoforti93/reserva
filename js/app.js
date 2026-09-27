@@ -7,6 +7,7 @@ import { initAuthObserver, login, logout, getCurrentUser, getUserProfile, isAdmi
 import { initCalendarView, refreshCalendar, destroyCalendarView } from './calendar-view.js';
 import { initReservationForm, openReservationForm, updateFormRoleVisibility } from './reservation-form.js';
 import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
+import { initExportService } from './export-service.js';
 import { getReservasProfessor, getReservas, getReservasSemana, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
 import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
 import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader } from './ui-helpers.js';
@@ -547,6 +548,7 @@ async function initApp() {
     setupGlobalEvents();
     setupAdminEventListeners();
     setupSheetsConfigUI();
+    initExportService();
 
     initAuthObserver(
         // On Login
@@ -556,14 +558,28 @@ async function initApp() {
             updateUserUI();
 
             // Mostra/esconde tab admin, botão de configuração do Sheets e botões de criação
+            const admin = isAdmin();
             const adminTab = document.getElementById('nav-admin');
             if (adminTab) {
-                adminTab.classList.toggle('hidden', !isAdmin());
+                adminTab.classList.toggle('hidden', !admin);
             }
             const sheetsHeaderBtn = document.getElementById('open-sheets-config-header');
             if (sheetsHeaderBtn) {
-                sheetsHeaderBtn.classList.toggle('hidden', !isAdmin());
+                sheetsHeaderBtn.classList.toggle('hidden', !admin);
             }
+            
+            // Botões de exportação de planilha (apenas admin)
+            const exportCalBtn = document.getElementById('admin-export-calendar-btn');
+            if (exportCalBtn) {
+                exportCalBtn.classList.toggle('hidden', !admin);
+                exportCalBtn.classList.toggle('flex', admin);
+            }
+            const exportPanelBtn = document.getElementById('admin-export-panel-btn');
+            if (exportPanelBtn) {
+                exportPanelBtn.classList.toggle('hidden', !admin);
+                exportPanelBtn.classList.toggle('sm:flex', admin);
+            }
+
             updateFormRoleVisibility();
 
             // Inicializa views
@@ -587,6 +603,16 @@ async function initApp() {
             const sheetsHeaderBtn = document.getElementById('open-sheets-config-header');
             if (sheetsHeaderBtn) {
                 sheetsHeaderBtn.classList.add('hidden');
+            }
+            const exportCalBtn = document.getElementById('admin-export-calendar-btn');
+            if (exportCalBtn) {
+                exportCalBtn.classList.add('hidden');
+                exportCalBtn.classList.remove('flex');
+            }
+            const exportPanelBtn = document.getElementById('admin-export-panel-btn');
+            if (exportPanelBtn) {
+                exportPanelBtn.classList.add('hidden');
+                exportPanelBtn.classList.remove('sm:flex');
             }
         }
     );

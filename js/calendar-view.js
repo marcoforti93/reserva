@@ -7,15 +7,12 @@
 import { SCHEDULE_CONFIG, STATUS_CONFIG, getAulaShortLabel, getDisciplinaSigla } from './schedule-config.js';
 import { 
     formatDateISO, formatDateBR, getDayLabel, 
-    getNextWeekday, getDayName, isToday, addDays, escapeHTML 
+    getDayName, isToday, addDays, escapeHTML 
 } from './utils.js';
 import { onReservasChange, getLaboratorios, getCursos, getDisciplinas, normalizeDate } from './sheet-service.js';
 import { createSkeletonCards } from './ui-helpers.js';
 
 let currentDate = new Date();
-// Se hoje for sábado ou domingo, avança para a próxima segunda-feira
-if (currentDate.getDay() === 0) currentDate = addDays(currentDate, 1);
-if (currentDate.getDay() === 6) currentDate = addDays(currentDate, 2);
 
 let currentTurno = 'noite';
 let laboratorios = [];
@@ -52,14 +49,16 @@ async function loadInitialData() {
  * Configura os controles do calendário (navegação de dias, turnos, data)
  */
 function setupCalendarControls() {
-    // Navegação dia a dia (anterior / próximo)
-    document.getElementById('prev-week')?.addEventListener('click', () => {
-        currentDate = getNextWeekday(currentDate, -1);
+    // Navegação dia a dia (anterior / próximo) - avança ou recua 1 dia consecutivo por clique
+    const prevBtn = document.getElementById('prev-day') || document.getElementById('prev-week');
+    prevBtn?.addEventListener('click', () => {
+        currentDate = addDays(currentDate, -1);
         loadDayData();
     });
     
-    document.getElementById('next-week')?.addEventListener('click', () => {
-        currentDate = getNextWeekday(currentDate, 1);
+    const nextBtn = document.getElementById('next-day') || document.getElementById('next-week');
+    nextBtn?.addEventListener('click', () => {
+        currentDate = addDays(currentDate, 1);
         loadDayData();
     });
 
@@ -98,9 +97,9 @@ async function loadDayData() {
     const dateISO = formatDateISO(currentDate);
 
     // Atualiza label do dia (ex: "Quarta-feira, 24 de Setembro de 2026")
-    const weekLabel = document.getElementById('week-label');
-    if (weekLabel) {
-        weekLabel.innerHTML = `
+    const dayLabel = document.getElementById('calendar-day-label') || document.getElementById('week-label');
+    if (dayLabel) {
+        dayLabel.innerHTML = `
             <span class="inline-flex items-center gap-1.5 font-semibold text-gray-800">
                 📅 ${getDayLabel(currentDate)}
                 ${isToday(currentDate) ? '<span class="ml-1 text-[11px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-700">Hoje</span>' : ''}
