@@ -51,12 +51,6 @@
                 <h1 class="text-xl font-bold text-gray-900 leading-tight">
                     Sistema de Reservas
                 </h1>
-                <p class="text-sm text-gray-500 mt-1">Labs Informática</p>
-                <p class="text-xs text-gray-400 mt-0.5 leading-relaxed">
-                    Escola Técnica Estadual<br>
-                    Dr. Domingos Minicucci Filho<br>
-                    Unidade: 051
-                </p>
             </div>
 
             <!-- Alerta para protocolo file:// -->
@@ -95,7 +89,7 @@
                         </span>
                         <input type="email" id="login-email" required autocomplete="email"
                             class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-gray-50 focus:bg-white"
-                            placeholder="admin@escola.edu.br">
+                            placeholder="seu.email@exemplo.com">
                     </div>
                 </div>
                 <div>
@@ -128,33 +122,6 @@
                 </button>
             </form>
 
-            <!-- Card informativo de credenciais para teste -->
-            <div class="mt-5 p-3.5 bg-indigo-50/80 border border-indigo-100 rounded-xl text-xs text-indigo-950">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="font-bold flex items-center gap-1.5 text-indigo-900">
-                        <span>🔑</span> Usuário de Teste:
-                    </span>
-                    <button type="button" id="fill-test-credentials"
-                        class="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-white px-2 py-0.5 rounded-md border border-indigo-200 shadow-sm transition-colors">
-                        Auto-preencher
-                    </button>
-                </div>
-                <div
-                    class="space-y-1 font-mono text-[11px] text-gray-700 bg-white/70 p-2 rounded-lg border border-indigo-50">
-                    <div>Email: <strong class="text-indigo-900 select-all">admin@escola.edu.br</strong></div>
-                    <div>Senha: <strong class="text-indigo-900 select-all">admin</strong></div>
-                </div>
-            </div>
-
-            <!-- Botão de Configuração da Planilha Google Sheets -->
-            <div class="mt-3 text-center">
-                <button type="button" id="open-sheets-config-login"
-                    class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1.5 transition-colors">
-                    <span>📊</span>
-                    <span>Configurar URL da Planilha Google Sheets</span>
-                </button>
-            </div>
-
             <!-- Script de detecção de protocolo file:// (executa imediatamente) -->
             <script>
                 if (window.location.protocol === 'file:') {
@@ -164,10 +131,6 @@
                     });
                 }
             </script>
-
-            <p class="text-xs text-center text-gray-400 mt-6">
-                © 2026 — ETEC Dr. Domingos Minicucci Filho · Unidade: 051
-            </p>
         </div>
     </div>
 
@@ -198,9 +161,9 @@
 
                     <!-- Right: New Reserva + User -->
                     <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                        <!-- Google Sheets Status / Config Button -->
+                        <!-- Google Sheets Status / Config Button (visível apenas para admin) -->
                         <button id="open-sheets-config-header" type="button"
-                            class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all border border-white/10"
+                            class="hidden flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all border border-white/10"
                             title="Status e Configuração da Planilha Google Sheets">
                             <span id="sheets-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
                             <span id="sheets-status-text" class="text-xs">Google Sheets</span>
@@ -528,7 +491,7 @@
                             <option value="">Selecione...</option>
                         </select>
                         <button type="button" id="add-curso-btn"
-                            class="px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
+                            class="hidden px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
                             + Novo
                         </button>
                     </div>
@@ -543,7 +506,7 @@
                             <option value="">Selecione a turma...</option>
                         </select>
                         <button type="button" id="add-turma-btn" title="Cadastrar nova turma"
-                            class="px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
+                            class="hidden px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
                             + Nova
                         </button>
                     </div>
@@ -558,7 +521,7 @@
                             <option value="">Selecione a disciplina...</option>
                         </select>
                         <button type="button" id="add-disciplina-btn" title="Cadastrar nova disciplina"
-                            class="px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
+                            class="hidden px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm font-semibold whitespace-nowrap">
                             + Nova
                         </button>
                     </div>
