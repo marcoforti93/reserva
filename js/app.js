@@ -7,7 +7,8 @@ import { initAuthObserver, login, logout, getCurrentUser, getUserProfile, isAdmi
 import { initCalendarView, refreshCalendar, destroyCalendarView } from './calendar-view.js';
 import { initReservationForm, openReservationForm } from './reservation-form.js';
 import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
-import { getReservasProfessor, getReservas, deleteReserva, updateReservaStatus } from './firestore-service.js';
+import { getReservasProfessor, getReservas, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
+import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
 import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader } from './ui-helpers.js';
 import { SCHEDULE_CONFIG, STATUS_CONFIG, getAulaLabel } from './schedule-config.js';
 import { formatDateBR, escapeHTML } from './utils.js';
@@ -88,6 +89,8 @@ function setupRouter() {
 
 function setupLoginForm() {
     const form = document.getElementById('login-form');
+    const submitBtn = document.getElementById('login-submit-btn');
+
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('login-email')?.value?.trim();
@@ -98,11 +101,43 @@ function setupLoginForm() {
             return;
         }
 
+        const originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-75', 'cursor-not-allowed');
+            submitBtn.innerHTML = `
+                <span class="inline-flex items-center justify-center gap-2">
+                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Entrando no sistema...</span>
+                </span>
+            `;
+        }
+
         try {
             await login(email, password);
         } catch {
-            // Toast already shown by auth.js
+            // Erro já tratado e exibido por auth.js (toast e inline alert)
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+                submitBtn.innerHTML = originalBtnHtml;
+            }
         }
+    });
+
+    // Botão de preenchimento automático para teste
+    document.getElementById('fill-test-credentials')?.addEventListener('click', () => {
+        const emailInput = document.getElementById('login-email');
+        const passInput = document.getElementById('login-password');
+        if (emailInput) emailInput.value = 'admin@escola.edu.br';
+        if (passInput) passInput.value = 'admin';
+        const err = document.getElementById('login-error-alert');
+        if (err) err.classList.add('hidden');
+        showToast('Credenciais preenchidas!', 'info', 2000);
     });
 
     // Logout button
@@ -296,18 +331,13 @@ function setupGlobalEvents() {
  * Mostra detalhes de uma reserva em modal
  */
 async function showReservaDetails(reservaId) {
-    // Buscar reserva do cache ou do Firestore
-    const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
-    const { db } = await import('./firebase-config.js');
-
     try {
-        const docSnap = await getDoc(doc(db, 'reservas', reservaId));
-        if (!docSnap.exists()) {
+        const r = await getReservaById(reservaId);
+        if (!r) {
             showToast('Reserva não encontrada.', 'error');
             return;
         }
 
-        const r = { id: docSnap.id, ...docSnap.data() };
         const statusCfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.livre;
         const turnoLabel = SCHEDULE_CONFIG[r.turno]?.label || r.turno;
         const aulasLabel = (r.aulas || []).map(a => getAulaLabel(r.turno, a) || `${a}ª aula`).join('<br>');
@@ -345,9 +375,9 @@ async function showReservaDetails(reservaId) {
                                 <span class="text-gray-400">📚</span>
                                 <div><strong>Turma:</strong> ${escapeHTML(r.turma || '')}<br><strong>Disciplina:</strong> ${escapeHTML(r.disciplina || '')}</div>
                             </div>
-                            ${r.cursoNome ? `<div class="flex items-start gap-2">
+                            ${(r.cursoNome || r.cursoSigla) ? `<div class="flex items-start gap-2">
                                 <span class="text-gray-400">🎓</span>
-                                <div><strong>Curso:</strong> ${escapeHTML(r.cursoNome)}</div>
+                                <div><strong>Curso:</strong> ${escapeHTML(r.cursoNome || '')}${r.cursoSigla ? ` (${escapeHTML(r.cursoSigla)})` : ''}</div>
                             </div>` : ''}
                         </div>
                     </div>
@@ -406,13 +436,102 @@ function showLogin() {
     document.getElementById('app-screen')?.classList.add('hidden');
 }
 
+// ============================================================
+// CONFIGURAÇÃO DA PLANILHA GOOGLE SHEETS (UI)
+// ============================================================
+
+function setupSheetsConfigUI() {
+    const updateHeaderBadge = () => {
+        const configured = isApiConfigured();
+        const dot = document.getElementById('sheets-status-dot');
+        const text = document.getElementById('sheets-status-text');
+        if (dot) {
+            dot.className = `w-2 h-2 rounded-full ${configured ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`;
+        }
+        if (text) {
+            text.textContent = configured ? 'Google Sheets' : 'Modo Local';
+        }
+    };
+
+    const openConfigModal = () => {
+        const modal = document.getElementById('sheets-config-modal');
+        const input = document.getElementById('sheets-api-url-input');
+        const bannerTitle = document.getElementById('sheets-banner-title');
+        const bannerDesc = document.getElementById('sheets-banner-desc');
+        const bannerIcon = document.getElementById('sheets-banner-icon');
+
+        if (input) input.value = getSheetApiUrl();
+
+        if (isApiConfigured()) {
+            if (bannerTitle) bannerTitle.textContent = '🟢 Conectado ao Google Sheets';
+            if (bannerDesc) bannerDesc.textContent = 'Suas reservas e cadastros estão sendo gravados e lidos diretamente na planilha online.';
+            if (bannerIcon) bannerIcon.textContent = '🟢';
+        } else {
+            if (bannerTitle) bannerTitle.textContent = '🟡 Modo Local (Demonstração)';
+            if (bannerDesc) bannerDesc.textContent = 'O sistema está gravando localmente no navegador. Cole a URL da API do Google Apps Script abaixo para salvar na nuvem.';
+            if (bannerIcon) bannerIcon.textContent = '🟡';
+        }
+
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    };
+
+    document.getElementById('open-sheets-config-header')?.addEventListener('click', openConfigModal);
+    document.getElementById('open-sheets-config-login')?.addEventListener('click', openConfigModal);
+
+    document.getElementById('sheets-save-btn')?.addEventListener('click', () => {
+        const input = document.getElementById('sheets-api-url-input');
+        const val = input ? input.value.trim() : '';
+        setCustomSheetApiUrl(val);
+        updateHeaderBadge();
+
+        const modal = document.getElementById('sheets-config-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        showToast(val ? 'URL da API salva com sucesso!' : 'Modo local ativado.', 'success');
+        refreshCalendar();
+    });
+
+    document.getElementById('sheets-test-btn')?.addEventListener('click', async () => {
+        const input = document.getElementById('sheets-api-url-input');
+        const val = input ? input.value.trim() : '';
+        if (!val) {
+            showToast('Informe a URL da API antes de testar.', 'warning');
+            return;
+        }
+
+        showLoader(true, 'Testando conexão com a planilha...');
+        try {
+            const res = await fetch(`${val}?action=ping`, { method: 'GET', redirect: 'follow' });
+            const data = await res.json();
+            if (data && data.success) {
+                showToast('✅ Conexão com o Google Sheets estabelecida com sucesso!', 'success', 5000);
+            } else {
+                throw new Error(data.error || 'Resposta inválida.');
+            }
+        } catch (err) {
+            showToast('❌ Falha ao conectar: verifique a URL e se a implantação está acessível a "Qualquer pessoa".', 'error', 6000);
+        } finally {
+            showLoader(false);
+        }
+    });
+
+    updateHeaderBadge();
+}
+
 async function initApp() {
-    console.log('🚀 Inicializando Sistema de Reservas...');
+    console.log('🚀 Inicializando Sistema de Reservas (Google Sheets)...');
 
     setupLoginForm();
     setupRouter();
     setupGlobalEvents();
     setupAdminEventListeners();
+    setupSheetsConfigUI();
 
     initAuthObserver(
         // On Login
@@ -428,8 +547,12 @@ async function initApp() {
             }
 
             // Inicializa views
-            await initCalendarView();
-            await initReservationForm();
+            try {
+                await initCalendarView();
+                await initReservationForm();
+            } catch (err) {
+                console.error('Erro ao carregar dados iniciais das views:', err);
+            }
 
             // Navega para view baseada no hash
             const hash = window.location.hash.replace('#', '') || 'calendario';

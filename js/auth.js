@@ -1,58 +1,54 @@
 // ============================================================
 // auth.js
-// Gerenciamento de autenticação Firebase e perfis de usuário
+// Gerenciamento de autenticação via Planilha Google Sheets e Sessão Local
 // ============================================================
 
-import { auth, db } from './firebase-config.js';
-import {
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged,
-    createUserWithEmailAndPassword
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import {
-    doc, getDoc, setDoc
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { getSheetApiUrl, isApiConfigured } from './sheet-config.js';
 import { showToast, showLoader } from './ui-helpers.js';
 
 /**
- * Estado do usuário atual
+ * Estado do usuário autenticado na sessão
  */
 let currentUser = null;
 let currentUserProfile = null;
 let authReadyResolve;
 const authReadyPromise = new Promise(resolve => { authReadyResolve = resolve; });
 
+let onLoginListener = null;
+let onLogoutListener = null;
+
+const STORAGE_KEY_USER = 'reserva_auth_user';
+
 /**
- * Retorna o usuário Firebase atual
+ * Retorna o usuário atual
  */
 export function getCurrentUser() {
     return currentUser;
 }
 
 /**
- * Retorna o perfil do usuário (doc do Firestore com role)
+ * Retorna o perfil do usuário atual (com role 'admin' ou 'professor')
  */
 export function getUserProfile() {
     return currentUserProfile;
 }
 
 /**
- * Verifica se o usuário é administrador
+ * Verifica se o usuário autenticado é administrador
  */
 export function isAdmin() {
     return currentUserProfile?.perfil === 'admin';
 }
 
 /**
- * Verifica se o usuário é professor
+ * Verifica se o usuário autenticado é professor
  */
 export function isProfessor() {
     return currentUserProfile?.perfil === 'professor';
 }
 
 /**
- * Aguarda até que o estado de auth esteja pronto
+ * Aguarda a verificação de sessão estar pronta
  */
 export function waitForAuth() {
     return authReadyPromise;
@@ -64,30 +60,84 @@ export function waitForAuth() {
  * @param {string} password
  */
 export async function login(email, password) {
+    const errorAlert = document.getElementById('login-error-alert');
+    const errorText = document.getElementById('login-error-text');
+    if (errorAlert) errorAlert.classList.add('hidden');
+
     try {
         showLoader(true, 'Entrando...');
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        showToast('Login realizado com sucesso!', 'success');
-        return userCredential.user;
-    } catch (error) {
-        console.error('Erro no login:', error);
-        let msg = 'Erro ao fazer login.';
-        switch (error.code) {
-            case 'auth/user-not-found':
-                msg = 'Usuário não encontrado.';
-                break;
-            case 'auth/wrong-password':
-            case 'auth/invalid-credential':
-                msg = 'Email ou senha incorretos.';
-                break;
-            case 'auth/invalid-email':
-                msg = 'Email inválido.';
-                break;
-            case 'auth/too-many-requests':
-                msg = 'Muitas tentativas. Tente novamente mais tarde.';
-                break;
+
+        let userData = null;
+
+        // Se a API da planilha ainda não foi configurada, usa contas de demonstração local
+        if (!isApiConfigured()) {
+            const cleanEmail = email.toLowerCase().trim();
+            if (cleanEmail === 'admin@escola.edu.br' || cleanEmail.includes('admin')) {
+                userData = {
+                    id: 'usr_admin_mock',
+                    email: email,
+                    nome: 'Administrador (Demo Local)',
+                    perfil: 'admin',
+                    professorId: null
+                };
+            } else {
+                userData = {
+                    id: 'usr_prof_mock',
+                    email: email,
+                    nome: email.split('@')[0],
+                    perfil: 'professor',
+                    professorId: 'prof_1'
+                };
+            }
+        } else {
+            // Chamada à API da Planilha
+            const url = getSheetApiUrl();
+            const response = await fetch(url, {
+                method: 'POST',
+                redirect: 'follow',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: 'login',
+                    email: email,
+                    senha: password
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Erro na conexão com o servidor (${response.status}).`);
+            }
+
+            const res = await response.json();
+            if (!res.success) {
+                throw new Error(res.error || 'Credenciais inválidas.');
+            }
+
+            userData = res.user;
         }
-        showToast(msg, 'error');
+
+        // Configura a sessão
+        currentUser = { uid: userData.id, email: userData.email };
+        currentUserProfile = userData;
+
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(userData));
+
+        showToast('Login realizado com sucesso!', 'success');
+        if (onLoginListener) {
+            onLoginListener(currentUser, currentUserProfile);
+        }
+
+        return currentUser;
+
+    } catch (error) {
+        console.error('Erro detalhado no login:', error);
+        const msg = error.message || 'Erro ao realizar login. Verifique suas credenciais.';
+
+        if (errorAlert && errorText) {
+            errorText.textContent = msg;
+            errorAlert.classList.remove('hidden');
+        }
+
+        showToast(msg, 'error', 6000);
         throw error;
     } finally {
         showLoader(false);
@@ -95,14 +145,18 @@ export async function login(email, password) {
 }
 
 /**
- * Faz logout
+ * Faz logout e limpa a sessão local
  */
 export async function logout() {
     try {
-        await signOut(auth);
         currentUser = null;
         currentUserProfile = null;
+        localStorage.removeItem(STORAGE_KEY_USER);
+
         showToast('Logout realizado.', 'info');
+        if (onLogoutListener) {
+            onLogoutListener();
+        }
     } catch (error) {
         console.error('Erro no logout:', error);
         showToast('Erro ao fazer logout.', 'error');
@@ -110,7 +164,7 @@ export async function logout() {
 }
 
 /**
- * Registra um novo usuário (usado pelo admin para criar contas)
+ * Registra um novo usuário na planilha
  * @param {string} email
  * @param {string} password
  * @param {object} profileData - { nome, perfil, professorId }
@@ -118,29 +172,38 @@ export async function logout() {
 export async function registerUser(email, password, profileData) {
     try {
         showLoader(true, 'Criando usuário...');
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const uid = userCredential.user.uid;
 
-        // Cria o perfil do usuário no Firestore
-        await setDoc(doc(db, 'usuarios', uid), {
-            email: email,
-            nome: profileData.nome || '',
-            perfil: profileData.perfil || 'professor',
-            professorId: profileData.professorId || null,
-            criadoEm: new Date().toISOString()
+        if (!isApiConfigured()) {
+            showToast('Usuário cadastrado no modo local!', 'success');
+            return { uid: 'usr_' + Date.now(), email };
+        }
+
+        const url = getSheetApiUrl();
+        const response = await fetch(url, {
+            method: 'POST',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+                action: 'registerUser',
+                email: email,
+                senha: password,
+                nome: profileData.nome || '',
+                perfil: profileData.perfil || 'professor',
+                professorId: profileData.professorId || ''
+            })
         });
 
-        showToast('Usuário criado com sucesso!', 'success');
-        return userCredential.user;
+        const res = await response.json();
+        if (!res.success) {
+            throw new Error(res.error || 'Erro ao cadastrar usuário na planilha.');
+        }
+
+        showToast('Usuário criado com sucesso na planilha!', 'success');
+        return { uid: res.user.id, email: res.user.email };
+
     } catch (error) {
         console.error('Erro ao registrar:', error);
-        let msg = 'Erro ao criar usuário.';
-        if (error.code === 'auth/email-already-in-use') {
-            msg = 'Este email já está em uso.';
-        } else if (error.code === 'auth/weak-password') {
-            msg = 'A senha deve ter pelo menos 6 caracteres.';
-        }
-        showToast(msg, 'error');
+        showToast(error.message || 'Erro ao criar usuário.', 'error');
         throw error;
     } finally {
         showLoader(false);
@@ -148,60 +211,37 @@ export async function registerUser(email, password, profileData) {
 }
 
 /**
- * Carrega o perfil do usuário do Firestore
- * @param {string} uid
- */
-async function loadUserProfile(uid) {
-    try {
-        const userDoc = await getDoc(doc(db, 'usuarios', uid));
-        if (userDoc.exists()) {
-            currentUserProfile = { id: uid, ...userDoc.data() };
-        } else {
-            // Se não tem perfil no Firestore, cria um padrão (professor)
-            const defaultProfile = {
-                email: currentUser.email,
-                nome: currentUser.email.split('@')[0],
-                perfil: 'professor',
-                professorId: null,
-                criadoEm: new Date().toISOString()
-            };
-            await setDoc(doc(db, 'usuarios', uid), defaultProfile);
-            currentUserProfile = { id: uid, ...defaultProfile };
-        }
-    } catch (error) {
-        console.error('Erro ao carregar perfil:', error);
-        currentUserProfile = {
-            id: uid,
-            email: currentUser?.email || '',
-            nome: 'Usuário',
-            perfil: 'professor',
-            professorId: null
-        };
-    }
-}
-
-/**
- * Inicializa o observer de autenticação
- * @param {Function} onLogin - Callback quando o usuário loga
- * @param {Function} onLogout - Callback quando o usuário desloga
+ * Inicializa o observador de autenticação
+ * Restaura automaticamente o login a partir do localStorage
  */
 export function initAuthObserver(onLogin, onLogout) {
-    onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            currentUser = user;
-            await loadUserProfile(user.uid);
-            onLogin(user, currentUserProfile);
+    onLoginListener = onLogin;
+    onLogoutListener = onLogout;
+
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY_USER);
+        if (stored) {
+            const userData = JSON.parse(stored);
+            currentUser = { uid: userData.id, email: userData.email };
+            currentUserProfile = userData;
+            onLogin(currentUser, currentUserProfile);
         } else {
             currentUser = null;
             currentUserProfile = null;
             onLogout();
         }
-        authReadyResolve();
-    });
+    } catch (err) {
+        console.error('Erro ao restaurar sessão de login:', err);
+        currentUser = null;
+        currentUserProfile = null;
+        onLogout();
+    }
+
+    authReadyResolve();
 }
 
 /**
- * Atualiza o header com informações do usuário
+ * Atualiza o header da aplicação com informações do usuário autenticado
  */
 export function updateUserUI() {
     const userNameEl = document.getElementById('user-display-name');

@@ -1,39 +1,10 @@
 // ============================================================
-// firebase-config.js
-// Inicialização do Firebase App, Firestore e Authentication.
-// INSTRUÇÃO: Substitua os valores de firebaseConfig com as
-// credenciais do seu projeto Firebase.
+// firebase-config.js (DESCONTINUADO / SUBSTITUÍDO)
+// O banco de dados agora utiliza Google Sheets + Apps Script Web App.
+// Consulte as configurações em: js/sheet-config.js
+// Guia de instalação em: google-apps-script/COMO_CONFIGURAR_A_PLANILHA.md
 // ============================================================
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-
-
-/**
- * ⚠️ IMPORTANTE: Substitua os valores abaixo com as credenciais
- * do seu projeto Firebase. Para obter estas credenciais:
- * 1. Acesse https://console.firebase.google.com
- * 2. Crie ou selecione um projeto
- * 3. Vá em Configurações do Projeto > Geral
- * 4. Na seção "Seus apps", copie a configuração do SDK
- */
-const firebaseConfig = {
-    apiKey: "AIzaSyCaXOPwCdWAPwhZa3nRGvupJjPOaciU47k",
-    authDomain: "reserva-labs-etec.firebaseapp.com",
-    projectId: "reserva-labs-etec",
-    storageBucket: "reserva-labs-etec.firebasestorage.app",
-    messagingSenderId: "119831259870",
-    appId: "1:119831259870:web:7cea43c72a7200f21ff04f"
-};
-
-// Inicializa o Firebase App
-const app = initializeApp(firebaseConfig);
-
-// Inicializa o Firestore Database
-const db = getFirestore(app);
-
-// Inicializa o Firebase Authentication
-const auth = getAuth(app);
-
-export { app, db, auth };
+export const db = null;
+export const auth = null;
+export const app = null;

@@ -132,3 +132,175 @@ export function getAulaShortLabel(turno, numeroAula) {
     if (!aula) return '';
     return `${aula.inicio}-${aula.fim}`;
 }
+
+/**
+ * Turmas padrão para seleção em lista dropdown
+ */
+export const DEFAULT_TURMAS = [
+    '1º M-TEC Informática para Internet',
+    '2º M-TEC Informática para Internet',
+    '3º M-TEC Informática para Internet',
+    '1º M-TEC Desenvolvimento de Sistemas',
+    '2º M-TEC Desenvolvimento de Sistemas',
+    '3º M-TEC Desenvolvimento de Sistemas',
+    '1º M-TEC Administração',
+    '2º M-TEC Administração',
+    '3º M-TEC Administração',
+    '1º M-TEC Logística',
+    '2º M-TEC Logística',
+    '3º M-TEC Logística',
+    '1º M-TEC Recursos Humanos',
+    '2º M-TEC Recursos Humanos',
+    '3º M-TEC Recursos Humanos',
+    '1º M-TEC Marketing',
+    '2º M-TEC Marketing',
+    '1º M-TEC Contabilidade',
+    '2º M-TEC Contabilidade',
+    '1º Desenvolvimento de Sistemas (Noturno)',
+    '2º Desenvolvimento de Sistemas (Noturno)',
+    '3º Desenvolvimento de Sistemas (Noturno)',
+    '1º Informática para Internet (Noturno)',
+    '2º Informática para Internet (Noturno)',
+    '3º Informática para Internet (Noturno)',
+    '1º Administração (Noturno)',
+    '2º Administração (Noturno)',
+    '3º Administração (Noturno)',
+    '1º Logística (Noturno)',
+    '2º Logística (Noturno)',
+    '3º Logística (Noturno)',
+    '1º Recursos Humanos (Noturno)',
+    '2º Recursos Humanos (Noturno)',
+    '1º Enfermagem',
+    '2º Enfermagem',
+    '3º Enfermagem',
+    '4º Enfermagem'
+];
+
+/**
+ * Disciplinas padrão para seleção em lista dropdown
+ */
+export const DEFAULT_DISCIPLINAS = [
+    'Análise e Projeto de Sistemas',
+    'Banco de Dados I',
+    'Banco de Dados II',
+    'Cálculo Financeiro',
+    'Contabilidade Geral',
+    'Design Digital',
+    'Desenvolvimento de Sistemas',
+    'Desenvolvimento Web I',
+    'Desenvolvimento Web II',
+    'Desenvolvimento Web III',
+    'Ética e Cidadania Organizacional',
+    'Fundamentos da Informática',
+    'Gestão de Conteúdo Web',
+    'Gestão de Pessoas',
+    'Gestão Empresarial',
+    'Inglês Instrumental',
+    'Inteligência Artificial Aplicada',
+    'Interface Web e Acessibilidade',
+    'Internet das Coisas (IoT)',
+    'Língua Portuguesa e Comunicação',
+    'Logística Empresarial',
+    'Lógica de Programação e Algoritmos',
+    'Marketing Digital',
+    'Matemática Aplicada',
+    'Planejamento e Desenvolvimento do TCC',
+    'Programação de Aplicativos Mobile I',
+    'Programação de Aplicativos Mobile II',
+    'Programação Web e Mobile',
+    'Redes de Computadores',
+    'Segurança da Informação',
+    'Sistemas Operacionais',
+    'Técnicas de Programação'
+];
+
+/**
+ * Mapeamento das siglas padrão das disciplinas (ETEC / Ensino Técnico)
+ */
+export const DISCIPLINAS_SIGLAS_MAP = {
+    'Programação Web I': 'PW-I',
+    'Programação Web II': 'PW-II',
+    'Programação Web III': 'PW-III',
+    'Desenvolvimento Web I': 'DW-I',
+    'Desenvolvimento Web II': 'DW-II',
+    'Desenvolvimento Web III': 'DW-III',
+    'Banco de Dados I': 'BD-I',
+    'Banco de Dados II': 'BD-II',
+    'Banco de Dados': 'BD',
+    'Análise e Projeto de Sistemas': 'APS',
+    'Desenvolvimento de Sistemas': 'DS',
+    'Design Digital': 'DD',
+    'Ética e Cidadania Organizacional': 'ECO',
+    'Fundamentos da Informática': 'FI',
+    'Gestão de Conteúdo Web': 'GCW',
+    'Gestão de Pessoas': 'GP',
+    'Gestão Empresarial': 'GE',
+    'Inglês Instrumental': 'II',
+    'Inteligência Artificial Aplicada': 'IAA',
+    'Interface Web e Acessibilidade': 'IWA',
+    'Internet das Coisas (IoT)': 'IoT',
+    'Internet das Coisas': 'IoT',
+    'Língua Portuguesa e Comunicação': 'LPC',
+    'Logística Empresarial': 'LE',
+    'Lógica de Programação e Algoritmos': 'LPA',
+    'Lógica de Programação': 'LP',
+    'Marketing Digital': 'MD',
+    'Matemática Aplicada': 'MA',
+    'Planejamento e Desenvolvimento do TCC': 'TCC',
+    'Programação de Aplicativos Mobile I': 'PAM-I',
+    'Programação de Aplicativos Mobile II': 'PAM-II',
+    'Programação Web e Mobile': 'PWM',
+    'Redes de Computadores': 'RC',
+    'Segurança da Informação': 'SI',
+    'Sistemas Operacionais': 'SO',
+    'Técnicas de Programação': 'TP',
+    'Técnicas de Programação I': 'TP-I',
+    'Técnicas de Programação II': 'TP-II',
+    'Cálculo Financeiro': 'CF',
+    'Contabilidade Geral': 'CG',
+    'Qualidade e Teste de Software': 'QTS',
+    'Sistemas Embarcados': 'SE',
+    'Programação e Algoritmos': 'PA'
+};
+
+/**
+ * Retorna a sigla de uma disciplina a partir do nome ou sigla explícita
+ * Ex: "Programação Web I" -> "PW-I"
+ */
+export function getDisciplinaSigla(nome, sigla = null) {
+    if (sigla && typeof sigla === 'string' && sigla.trim()) {
+        return sigla.trim();
+    }
+    if (!nome) return '';
+
+    // 1. Se o nome já tiver parênteses contendo uma sigla curta, ex: "Programação Web I (PW-I)"
+    const match = nome.match(/\(([^)]+)\)/);
+    if (match && match[1].trim().length <= 8) {
+        return match[1].trim();
+    }
+
+    const clean = nome.replace(/\s*\([^)]+\)/, '').trim();
+
+    // 2. Busca exata ou case-insensitive no mapeamento padrão
+    if (DISCIPLINAS_SIGLAS_MAP[clean]) {
+        return DISCIPLINAS_SIGLAS_MAP[clean];
+    }
+    const foundKey = Object.keys(DISCIPLINAS_SIGLAS_MAP).find(k => k.toLowerCase() === clean.toLowerCase());
+    if (foundKey) {
+        return DISCIPLINAS_SIGLAS_MAP[foundKey];
+    }
+
+    // 3. Se o nome já for curto (até 6 caracteres, como "PW-I" ou "BD"), usa diretamente
+    if (clean.length <= 6) {
+        return clean;
+    }
+
+    // 4. Se não encontrar, tenta gerar acrônimo a partir das iniciais relevantes
+    const stopwords = ['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com'];
+    const words = clean.split(/\s+/).filter(w => !stopwords.includes(w.toLowerCase()));
+    if (words.length >= 2 && words.length <= 4) {
+        return words.map(w => w[0].toUpperCase()).join('');
+    }
+
+    return clean;
+}

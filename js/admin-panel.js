@@ -1,17 +1,19 @@
 // ============================================================
 // admin-panel.js
-// Painel Administrativo: aprovações, CRUD labs/profs/cursos
+// Painel Administrativo: aprovações, CRUD labs/profs/cursos/turmas/disciplinas
 // ============================================================
 
 import {
     getReservasPendentes, updateReservaStatus, deleteReserva,
     getLaboratorios, addLaboratorio, updateLaboratorio, deleteLaboratorio,
     getProfessores, addProfessor, updateProfessor, deleteProfessor,
-    getCursos, addCurso, updateCurso, deleteCurso
-} from './firestore-service.js';
+    getCursos, addCurso, updateCurso, deleteCurso,
+    getTurmas, addTurma, updateTurma, deleteTurma, seedTurmas,
+    getDisciplinas, addDisciplina, updateDisciplina, deleteDisciplina, seedDisciplinas
+} from './sheet-service.js';
 import { registerUser, isAdmin } from './auth.js';
 import { showToast, showConfirm, showLoader, createStatusBadge, openModal, closeModal } from './ui-helpers.js';
-import { SCHEDULE_CONFIG, getAulaLabel, STATUS_CONFIG } from './schedule-config.js';
+import { SCHEDULE_CONFIG, getAulaLabel, STATUS_CONFIG, DEFAULT_TURMAS, DEFAULT_DISCIPLINAS } from './schedule-config.js';
 import { formatDateBR, escapeHTML } from './utils.js';
 import { refreshCalendar } from './calendar-view.js';
 import { refreshFormData } from './reservation-form.js';
@@ -67,6 +69,12 @@ async function loadAdminTab(tab) {
         case 'cursos':
             await renderCursosCrud(container);
             break;
+        case 'turmas':
+            await renderTurmasCrud(container);
+            break;
+        case 'disciplinas':
+            await renderDisciplinasCrud(container);
+            break;
         case 'usuarios':
             renderUsuariosCrud(container);
             break;
@@ -98,42 +106,45 @@ async function renderPendentes(container) {
         <div class="space-y-3">`;
 
     pendentes.forEach(r => {
-        const aulasLabel = (r.aulas || []).map(a => getAulaLabel(r.turno, a)).join(', ');
-        const turnoLabel = SCHEDULE_CONFIG[r.turno]?.label || r.turno;
+        const dataStr = formatDateBR(r.data);
+        const turnoConfig = SCHEDULE_CONFIG[r.turno] || {};
+        const aulasStr = (r.aulas || []).map(a => `${a}ª`).join(', ');
 
         html += `
-        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-            <div class="h-1 bg-amber-500"></div>
-            <div class="p-4">
+            <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="font-bold text-gray-900">${escapeHTML(r.labNome || '')}</span>
-                            ${createStatusBadge(r.status)}
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-gray-900">${escapeHTML(r.labNome || 'Laboratório')}</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">Pendente</span>
+                            ${r.recorrente ? '<span class="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">🔄 Recorrente</span>' : ''}
                         </div>
-                        <div class="text-sm text-gray-600 space-y-0.5">
-                            <div>📅 <strong>${formatDateBR(r.data)}</strong> · ${turnoLabel}</div>
-                            <div>⏰ ${aulasLabel}</div>
-                            <div>👤 ${escapeHTML(r.professorNome || '')}</div>
-                            <div>📚 ${escapeHTML(r.turma || '')} — ${escapeHTML(r.disciplina || '')}</div>
-                            ${r.cursoNome ? `<div>🎓 ${escapeHTML(r.cursoNome)}</div>` : ''}
-                            ${r.recursos?.length ? `<div>🔧 ${r.recursos.join(', ')}</div>` : ''}
-                            ${r.observacoes ? `<div class="text-gray-400 italic">💬 ${escapeHTML(r.observacoes)}</div>` : ''}
+                        <div class="text-xs text-gray-500">
+                            📅 ${dataStr} · ${turnoConfig.icon || ''} ${turnoConfig.label || r.turno} · Aulas: ${aulasStr}
                         </div>
+                        <div class="text-sm text-gray-700">
+                            👤 <strong>${escapeHTML(r.professorNome || 'Professor')}</strong>
+                            ${r.cursoNome ? `· 🎓 ${escapeHTML(r.cursoNome)}` : ''}
+                        </div>
+                        <div class="text-xs text-gray-500">
+                            📚 ${escapeHTML(r.turma || '')} — ${escapeHTML(r.disciplina || '')}
+                            ${r.recursos?.length ? `· 🔧 ${r.recursos.join(', ')}` : ''}
+                        </div>
+                        ${r.observacoes ? `<div class="text-xs text-gray-400 italic">"${escapeHTML(r.observacoes)}"</div>` : ''}
                     </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <button onclick="window.dispatchEvent(new CustomEvent('approve-reserva', {detail: '${r.id}'}))" 
-                            class="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm">
+
+                    <div class="flex items-center gap-2 self-end sm:self-center">
+                        <button onclick="window.dispatchEvent(new CustomEvent('approve-reserva', {detail: '${r.id}'}))"
+                            class="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-1">
                             ✓ Aprovar
                         </button>
-                        <button onclick="window.dispatchEvent(new CustomEvent('reject-reserva', {detail: '${r.id}'}))" 
-                            class="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm">
+                        <button onclick="window.dispatchEvent(new CustomEvent('reject-reserva', {detail: '${r.id}'}))"
+                            class="px-4 py-2 rounded-xl text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors flex items-center gap-1">
                             ✕ Rejeitar
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>`;
+            </div>`;
     });
 
     html += `</div>`;
@@ -154,32 +165,40 @@ async function renderLabsCrud(container) {
                 + Novo Laboratório
             </button>
         </div>
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">`;
+        <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Nome</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Descrição</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Capacidade</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+                        <th class="px-4 py-3 text-right font-semibold text-gray-700">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">`;
 
     labs.forEach(lab => {
         html += `
-        <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow ${lab.ativo === false ? 'opacity-50' : ''}">
-            <div class="flex items-center justify-between mb-2">
-                <h4 class="font-bold text-gray-900">${escapeHTML(lab.nome)}</h4>
-                <span class="text-xs px-2 py-0.5 rounded-full ${lab.ativo === false ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">${lab.ativo === false ? 'Inativo' : 'Ativo'}</span>
-            </div>
-            <p class="text-sm text-gray-500 mb-1">${escapeHTML(lab.descricao || 'Sem descrição')}</p>
-            <p class="text-xs text-gray-400 mb-3">Capacidade: ${lab.capacidade || 'N/A'}</p>
-            <div class="flex gap-2">
-                <button onclick="window.dispatchEvent(new CustomEvent('edit-lab', {detail: '${lab.id}'}))" class="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors font-medium">
-                    ✏️ Editar
-                </button>
-                <button onclick="window.dispatchEvent(new CustomEvent('delete-lab', {detail: '${lab.id}'}))" class="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">
-                    🗑️ Remover
-                </button>
-            </div>
-        </div>`;
+            <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3 font-medium text-gray-900">${escapeHTML(lab.nome)}</td>
+                <td class="px-4 py-3 text-gray-500">${escapeHTML(lab.descricao || '—')}</td>
+                <td class="px-4 py-3 text-gray-500">${lab.capacidade ? `${lab.capacidade} alunos` : '—'}</td>
+                <td class="px-4 py-3">
+                    <span class="text-xs px-2 py-0.5 rounded-full ${lab.ativo !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} font-semibold">
+                        ${lab.ativo !== false ? 'Ativo' : 'Inativo'}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="window.dispatchEvent(new CustomEvent('edit-lab', {detail: '${lab.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1 font-medium">✏️ Editar</button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('delete-lab', {detail: '${lab.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">🗑️ Desativar</button>
+                </td>
+            </tr>`;
     });
 
-    html += `</div>`;
+    html += `</tbody></table></div>`;
     container.innerHTML = html;
 
-    // Add lab button
     document.getElementById('admin-add-lab')?.addEventListener('click', () => {
         openAdminItemModal('lab');
     });
@@ -216,8 +235,8 @@ async function renderProfsCrud(container) {
                 <td class="px-4 py-3 font-medium text-gray-900">${escapeHTML(p.nome)}</td>
                 <td class="px-4 py-3 text-gray-500">${escapeHTML(p.email || '—')}</td>
                 <td class="px-4 py-3 text-right">
-                    <button onclick="window.dispatchEvent(new CustomEvent('edit-prof', {detail: '${p.id}'}))" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1">✏️</button>
-                    <button onclick="window.dispatchEvent(new CustomEvent('delete-prof', {detail: '${p.id}'}))" class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 transition-colors">🗑️</button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('edit-prof', {detail: '${p.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1 font-medium">✏️ Editar</button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('delete-prof', {detail: '${p.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">🗑️ Excluir</button>
                 </td>
             </tr>`;
     });
@@ -262,11 +281,13 @@ async function renderCursosCrud(container) {
                 <td class="px-4 py-3 font-medium text-gray-900">${escapeHTML(c.nome)}</td>
                 <td class="px-4 py-3 text-gray-500">${escapeHTML(c.sigla || '—')}</td>
                 <td class="px-4 py-3">
-                    <span class="text-xs px-2 py-0.5 rounded-full ${c.ativo === false ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">${c.ativo === false ? 'Inativo' : 'Ativo'}</span>
+                    <span class="text-xs px-2 py-0.5 rounded-full ${c.ativo === false ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} font-semibold">
+                        ${c.ativo === false ? 'Inativo' : 'Ativo'}
+                    </span>
                 </td>
                 <td class="px-4 py-3 text-right">
-                    <button onclick="window.dispatchEvent(new CustomEvent('edit-curso', {detail: '${c.id}'}))" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1">✏️</button>
-                    <button onclick="window.dispatchEvent(new CustomEvent('delete-curso', {detail: '${c.id}'}))" class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 transition-colors">🗑️</button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('edit-curso', {detail: '${c.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1 font-medium">✏️ Editar</button>
+                    <button onclick="window.dispatchEvent(new CustomEvent('delete-curso', {detail: '${c.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">🗑️ Desativar</button>
                 </td>
             </tr>`;
     });
@@ -277,6 +298,200 @@ async function renderCursosCrud(container) {
     document.getElementById('admin-add-curso')?.addEventListener('click', () => {
         openAdminItemModal('curso');
     });
+}
+
+// ========================
+// CRUD TURMAS
+// ========================
+
+async function renderTurmasCrud(container) {
+    const turmasList = await getTurmas();
+
+    let html = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-2">
+                <h3 class="text-lg font-bold text-gray-800">Turmas</h3>
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">${turmasList.length} cadastrada(s)</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="admin-seed-turmas" class="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors" title="Importa as 37 turmas padrão da ETEC para o banco">
+                    📥 Importar Padrões da ETEC
+                </button>
+                <button id="admin-add-turma" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+                    + Nova Turma
+                </button>
+            </div>
+        </div>`;
+
+    if (turmasList.length === 0) {
+        html += `
+            <div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500 shadow-sm">
+                <div class="text-4xl mb-2">👥</div>
+                <h4 class="font-bold text-base text-gray-800">Nenhuma turma cadastrada no banco</h4>
+                <p class="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                    Você pode cadastrar turmas manualmente ou importar todas as turmas padrão da ETEC Dr. Domingos Minicucci Filho com um único clique.
+                </p>
+                <button id="admin-seed-turmas-empty" class="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-md">
+                    📥 Carregar Turmas Padrão da ETEC
+                </button>
+            </div>`;
+    } else {
+        html += `
+        <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Nome da Turma</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Turno / Período</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+                        <th class="px-4 py-3 text-right font-semibold text-gray-700">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">`;
+
+        turmasList.forEach(t => {
+            html += `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-gray-900">${escapeHTML(t.nome)}</td>
+                    <td class="px-4 py-3 text-gray-500">${escapeHTML(t.turno || '—')}</td>
+                    <td class="px-4 py-3">
+                        <span class="text-xs px-2 py-0.5 rounded-full ${t.ativo !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} font-semibold">
+                            ${t.ativo !== false ? 'Ativa' : 'Inativa'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="window.dispatchEvent(new CustomEvent('edit-turma', {detail: '${t.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1 font-medium">✏️ Editar</button>
+                        <button onclick="window.dispatchEvent(new CustomEvent('delete-turma', {detail: '${t.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">🗑️ Desativar</button>
+                    </td>
+                </tr>`;
+        });
+
+        html += `</tbody></table></div>`;
+    }
+
+    container.innerHTML = html;
+
+    document.getElementById('admin-add-turma')?.addEventListener('click', () => {
+        openAdminItemModal('turma');
+    });
+
+    const triggerSeedTurmas = async () => {
+        const confirmed = await showConfirm(
+            'Importar Turmas Padrão',
+            `Deseja importar as ${DEFAULT_TURMAS.length} turmas padrão da ETEC para o banco de dados? Turmas já existentes não serão duplicadas.`,
+            'Importar'
+        );
+        if (confirmed) {
+            showLoader(true, 'Importando turmas...');
+            try {
+                await seedTurmas(DEFAULT_TURMAS);
+                await loadAdminTab('turmas');
+                await refreshFormData();
+            } finally {
+                showLoader(false);
+            }
+        }
+    };
+
+    document.getElementById('admin-seed-turmas')?.addEventListener('click', triggerSeedTurmas);
+    document.getElementById('admin-seed-turmas-empty')?.addEventListener('click', triggerSeedTurmas);
+}
+
+// ========================
+// CRUD DISCIPLINAS
+// ========================
+
+async function renderDisciplinasCrud(container) {
+    const disciplinasList = await getDisciplinas();
+
+    let html = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-2">
+                <h3 class="text-lg font-bold text-gray-800">Disciplinas</h3>
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">${disciplinasList.length} cadastrada(s)</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="admin-seed-disciplinas" class="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors" title="Importa as 32 disciplinas curriculares padrão para o banco">
+                    📥 Importar Padrões da ETEC
+                </button>
+                <button id="admin-add-disciplina" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+                    + Nova Disciplina
+                </button>
+            </div>
+        </div>`;
+
+    if (disciplinasList.length === 0) {
+        html += `
+            <div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500 shadow-sm">
+                <div class="text-4xl mb-2">📖</div>
+                <h4 class="font-bold text-base text-gray-800">Nenhuma disciplina cadastrada no banco</h4>
+                <p class="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                    Você pode cadastrar disciplinas individualmente ou importar todas as disciplinas padrão da ETEC com um clique.
+                </p>
+                <button id="admin-seed-disciplinas-empty" class="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-md">
+                    📥 Carregar Disciplinas Padrão da ETEC
+                </button>
+            </div>`;
+    } else {
+        html += `
+        <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Nome da Disciplina</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Sigla / Código</th>
+                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+                        <th class="px-4 py-3 text-right font-semibold text-gray-700">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">`;
+
+        disciplinasList.forEach(d => {
+            html += `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-gray-900">${escapeHTML(d.nome)}</td>
+                    <td class="px-4 py-3 text-gray-500">${escapeHTML(d.sigla || '—')}</td>
+                    <td class="px-4 py-3">
+                        <span class="text-xs px-2 py-0.5 rounded-full ${d.ativo !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} font-semibold">
+                            ${d.ativo !== false ? 'Ativa' : 'Inativa'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="window.dispatchEvent(new CustomEvent('edit-disciplina', {detail: '${d.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors mr-1 font-medium">✏️ Editar</button>
+                        <button onclick="window.dispatchEvent(new CustomEvent('delete-disciplina', {detail: '${d.id}'}))" class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">🗑️ Desativar</button>
+                    </td>
+                </tr>`;
+        });
+
+        html += `</tbody></table></div>`;
+    }
+
+    container.innerHTML = html;
+
+    document.getElementById('admin-add-disciplina')?.addEventListener('click', () => {
+        openAdminItemModal('disciplina');
+    });
+
+    const triggerSeedDisciplinas = async () => {
+        const confirmed = await showConfirm(
+            'Importar Disciplinas Padrão',
+            `Deseja importar as ${DEFAULT_DISCIPLINAS.length} disciplinas padrão da ETEC para o banco de dados? Disciplinas já existentes não serão duplicadas.`,
+            'Importar'
+        );
+        if (confirmed) {
+            showLoader(true, 'Importando disciplinas...');
+            try {
+                await seedDisciplinas(DEFAULT_DISCIPLINAS);
+                await loadAdminTab('disciplinas');
+                await refreshFormData();
+            } finally {
+                showLoader(false);
+            }
+        }
+    };
+
+    document.getElementById('admin-seed-disciplinas')?.addEventListener('click', triggerSeedDisciplinas);
+    document.getElementById('admin-seed-disciplinas-empty')?.addEventListener('click', triggerSeedDisciplinas);
 }
 
 // ========================
@@ -302,7 +517,7 @@ function renderUsuariosCrud(container) {
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Perfil</label>
-                    <select id="admin-user-perfil" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all">
+                    <select id="admin-user-perfil" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm transition-all bg-white">
                         <option value="professor">Professor</option>
                         <option value="admin">Administrador</option>
                     </select>
@@ -345,7 +560,9 @@ function openAdminItemModal(type, editData = null) {
     const titles = {
         lab: editData ? 'Editar Laboratório' : 'Novo Laboratório',
         professor: editData ? 'Editar Professor' : 'Novo Professor',
-        curso: editData ? 'Editar Curso' : 'Novo Curso'
+        curso: editData ? 'Editar Curso' : 'Novo Curso',
+        turma: editData ? 'Editar Turma' : 'Nova Turma',
+        disciplina: editData ? 'Editar Disciplina' : 'Nova Disciplina'
     };
 
     if (title) title.textContent = titles[type] || 'Novo Item';
@@ -357,15 +574,15 @@ function openAdminItemModal(type, editData = null) {
             formHTML = `
                 <form id="admin-item-form" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Laboratório</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Laboratório *</label>
                         <input type="text" id="item-nome" required value="${escapeHTML(editData?.nome || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: LAB 01">
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Descrição</label>
-                        <input type="text" id="item-descricao" value="${escapeHTML(editData?.descricao || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: 30 PCs">
+                        <input type="text" id="item-descricao" value="${escapeHTML(editData?.descricao || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: 30 PCs, Projetor">
                     </div>
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Capacidade</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Capacidade (alunos)</label>
                         <input type="number" id="item-capacidade" value="${editData?.capacidade || ''}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="30">
                     </div>
                     <div class="flex gap-3 pt-2">
@@ -378,7 +595,7 @@ function openAdminItemModal(type, editData = null) {
             formHTML = `
                 <form id="admin-item-form" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Professor</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Professor *</label>
                         <input type="text" id="item-nome" required value="${escapeHTML(editData?.nome || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: Prof. Carlos Silva">
                     </div>
                     <div>
@@ -395,12 +612,52 @@ function openAdminItemModal(type, editData = null) {
             formHTML = `
                 <form id="admin-item-form" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Curso</label>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome do Curso *</label>
                         <input type="text" id="item-nome" required value="${escapeHTML(editData?.nome || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: Informática para Internet">
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Sigla</label>
                         <input type="text" id="item-sigla" value="${escapeHTML(editData?.sigla || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: INFO">
+                    </div>
+                    <div class="flex gap-3 pt-2">
+                        <button type="button" id="cancel-admin-item" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                        <button type="submit" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                    </div>
+                </form>`;
+            break;
+        case 'turma':
+            formHTML = `
+                <form id="admin-item-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome da Turma *</label>
+                        <input type="text" id="item-nome" required value="${escapeHTML(editData?.nome || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: 1º M-TEC Informática para Internet">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Turno / Período</label>
+                        <select id="item-turno" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm bg-white">
+                            <option value="">Não especificado</option>
+                            <option value="Manhã" ${editData?.turno === 'Manhã' ? 'selected' : ''}>☀️ Manhã</option>
+                            <option value="Tarde" ${editData?.turno === 'Tarde' ? 'selected' : ''}>🌤️ Tarde</option>
+                            <option value="Noite" ${editData?.turno === 'Noite' ? 'selected' : ''}>🌙 Noite</option>
+                            <option value="Integral" ${editData?.turno === 'Integral' ? 'selected' : ''}>🕒 Integral</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-3 pt-2">
+                        <button type="button" id="cancel-admin-item" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
+                        <button type="submit" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Salvar</button>
+                    </div>
+                </form>`;
+            break;
+        case 'disciplina':
+            formHTML = `
+                <form id="admin-item-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nome da Disciplina *</label>
+                        <input type="text" id="item-nome" required value="${escapeHTML(editData?.nome || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: Desenvolvimento Web II">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Sigla / Código</label>
+                        <input type="text" id="item-sigla" value="${escapeHTML(editData?.sigla || '')}" class="w-full px-4 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm" placeholder="Ex: DW2">
                     </div>
                     <div class="flex gap-3 pt-2">
                         <button type="button" id="cancel-admin-item" class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">Cancelar</button>
@@ -452,11 +709,29 @@ function openAdminItemModal(type, editData = null) {
                     else await addCurso(data);
                     break;
                 }
+                case 'turma': {
+                    const data = {
+                        nome: document.getElementById('item-nome')?.value?.trim(),
+                        turno: document.getElementById('item-turno')?.value || ''
+                    };
+                    if (editData) await updateTurma(editData.id, data);
+                    else await addTurma(data);
+                    break;
+                }
+                case 'disciplina': {
+                    const data = {
+                        nome: document.getElementById('item-nome')?.value?.trim(),
+                        sigla: document.getElementById('item-sigla')?.value?.trim()
+                    };
+                    if (editData) await updateDisciplina(editData.id, data);
+                    else await addDisciplina(data);
+                    break;
+                }
             }
             closeModal('admin-item-modal');
             await loadAdminTab(activeTab);
             refreshCalendar();
-            refreshFormData();
+            await refreshFormData();
         } catch (error) {
             console.error(error);
         } finally {
@@ -505,7 +780,7 @@ export function setupAdminEventListeners() {
             await deleteLaboratorio(e.detail);
             await loadAdminTab('laboratorios');
             refreshCalendar();
-            refreshFormData();
+            await refreshFormData();
         }
     });
 
@@ -522,7 +797,7 @@ export function setupAdminEventListeners() {
         if (confirmed) {
             await deleteProfessor(e.detail);
             await loadAdminTab('professores');
-            refreshFormData();
+            await refreshFormData();
         }
     });
 
@@ -539,7 +814,41 @@ export function setupAdminEventListeners() {
         if (confirmed) {
             await deleteCurso(e.detail);
             await loadAdminTab('cursos');
-            refreshFormData();
+            await refreshFormData();
+        }
+    });
+
+    // Editar turma
+    window.addEventListener('edit-turma', async (e) => {
+        const turmasList = await getTurmas();
+        const turma = turmasList.find(t => t.id === e.detail);
+        if (turma) openAdminItemModal('turma', turma);
+    });
+
+    // Deletar turma
+    window.addEventListener('delete-turma', async (e) => {
+        const confirmed = await showConfirm('Remover Turma', 'Deseja desativar esta turma?', 'Remover', 'danger');
+        if (confirmed) {
+            await deleteTurma(e.detail);
+            await loadAdminTab('turmas');
+            await refreshFormData();
+        }
+    });
+
+    // Editar disciplina
+    window.addEventListener('edit-disciplina', async (e) => {
+        const disciplinasList = await getDisciplinas();
+        const disciplina = disciplinasList.find(d => d.id === e.detail);
+        if (disciplina) openAdminItemModal('disciplina', disciplina);
+    });
+
+    // Deletar disciplina
+    window.addEventListener('delete-disciplina', async (e) => {
+        const confirmed = await showConfirm('Remover Disciplina', 'Deseja desativar esta disciplina?', 'Remover', 'danger');
+        if (confirmed) {
+            await deleteDisciplina(e.detail);
+            await loadAdminTab('disciplinas');
+            await refreshFormData();
         }
     });
 }

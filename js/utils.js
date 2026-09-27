@@ -126,6 +126,34 @@ export function getWeekLabel(date) {
 }
 
 /**
+ * Formata label completa do dia (ex: "Quarta-feira, 24 de Setembro de 2026")
+ */
+export function getDayLabel(date) {
+    if (typeof date === 'string') date = new Date(date + 'T00:00:00');
+    const diasExtenso = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const dayName = diasExtenso[date.getDay()];
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = meses[date.getMonth()];
+    const y = date.getFullYear();
+    return `${dayName}, ${d} de ${m} de ${y}`;
+}
+
+/**
+ * Retorna o próximo ou anterior dia útil (pula fins de semana)
+ */
+export function getNextWeekday(date, direction = 1) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + direction);
+    if (d.getDay() === 0) { // Domingo
+        d.setDate(d.getDate() + (direction > 0 ? 1 : -2));
+    } else if (d.getDay() === 6) { // Sábado
+        d.setDate(d.getDate() + (direction > 0 ? 2 : -1));
+    }
+    return d;
+}
+
+/**
  * Gera um ID simples (para uso temporário)
  */
 export function generateId() {

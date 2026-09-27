@@ -1,12 +1,17 @@
 // ============================================================
 // reservation-form.js
 // Modal de formulário de reserva com selects dinâmicos,
+// seleção de Turma e Disciplina integrados ao Firestore (+ Adicionar Novo),
 // pills de aulas, recursos extras e reserva recorrente
 // ============================================================
 
-import { SCHEDULE_CONFIG, RECURSOS_DISPONIVEIS, getAulaLabel } from './schedule-config.js';
-import { getSuggestedTurno, formatDateISO } from './utils.js';
-import { getLaboratorios, getProfessores, getCursos, createReserva, createReservaRecorrente, addProfessor, addCurso, getReservas } from './firestore-service.js';
+import { SCHEDULE_CONFIG, RECURSOS_DISPONIVEIS, DEFAULT_TURMAS, DEFAULT_DISCIPLINAS, getAulaLabel, getDisciplinaSigla } from './schedule-config.js';
+import { getSuggestedTurno, formatDateISO, escapeHTML } from './utils.js';
+import { 
+    getLaboratorios, getProfessores, getCursos, 
+    getTurmas, addTurma, getDisciplinas, addDisciplina,
+    createReserva, createReservaRecorrente, addProfessor, addCurso 
+} from './sheet-service.js';
 import { openModal, closeModal, showToast, showLoader } from './ui-helpers.js';
 import { getCurrentUser, getUserProfile, isAdmin } from './auth.js';
 import { refreshCalendar } from './calendar-view.js';
@@ -14,6 +19,8 @@ import { refreshCalendar } from './calendar-view.js';
 let laboratorios = [];
 let professores = [];
 let cursos = [];
+let turmas = [];
+let disciplinas = [];
 
 /**
  * Inicializa o formulário de reserva
@@ -25,46 +32,92 @@ export async function initReservationForm() {
 }
 
 /**
- * Carrega dados para os selects
+ * Carrega dados para os selects a partir do Firestore
  */
 async function loadFormData() {
-    [laboratorios, professores, cursos] = await Promise.all([
-        getLaboratorios(),
-        getProfessores(),
-        getCursos()
-    ]);
+    try {
+        [laboratorios, professores, cursos, turmas, disciplinas] = await Promise.all([
+            getLaboratorios(),
+            getProfessores(),
+            getCursos(),
+            getTurmas(),
+            getDisciplinas()
+        ]);
+    } catch (err) {
+        console.error('Erro ao carregar dados do formulário:', err);
+    }
     populateSelects();
 }
 
 /**
- * Popula os selects com dados do Firestore
+ * Popula os selects com dados do Firestore (com fallback para listas padrão da ETEC)
  */
 function populateSelects() {
     // Laboratórios
     const labSelect = document.getElementById('reserva-lab');
     if (labSelect) {
+        const curVal = labSelect.value;
         labSelect.innerHTML = `<option value="">Selecione o laboratório</option>` +
             laboratorios.filter(l => l.ativo !== false).map(l =>
-                `<option value="${l.id}">${l.nome} (${l.descricao || ''})</option>`
+                `<option value="${l.id}">${escapeHTML(l.nome)} (${escapeHTML(l.descricao || '')})</option>`
             ).join('');
+        if (curVal) labSelect.value = curVal;
     }
 
     // Professores (visível apenas para admin)
     const profSelect = document.getElementById('reserva-professor');
     if (profSelect) {
+        const curVal = profSelect.value;
         profSelect.innerHTML = `<option value="">Selecione o professor</option>` +
             professores.map(p =>
-                `<option value="${p.id}">${p.nome}</option>`
+                `<option value="${p.id}">${escapeHTML(p.nome)}</option>`
             ).join('');
+        if (curVal) profSelect.value = curVal;
     }
 
     // Cursos
     const cursoSelect = document.getElementById('reserva-curso');
     if (cursoSelect) {
+        const curVal = cursoSelect.value;
         cursoSelect.innerHTML = `<option value="">Selecione o curso</option>` +
             cursos.filter(c => c.ativo !== false).map(c =>
-                `<option value="${c.id}">${c.nome}${c.sigla ? ` (${c.sigla})` : ''}</option>`
+                `<option value="${c.id}">${escapeHTML(c.nome)}${c.sigla ? ` (${escapeHTML(c.sigla)})` : ''}</option>`
             ).join('');
+        if (curVal) cursoSelect.value = curVal;
+    }
+
+    // Turmas (Lista Dropdown alimentada pelo Firestore / Admin Panel)
+    const turmaSelect = document.getElementById('reserva-turma');
+    if (turmaSelect) {
+        const curVal = turmaSelect.value;
+        let activeTurmas = turmas.filter(t => t.ativo !== false).map(t => t.nome);
+        // Se ainda não houver turmas cadastradas no Firestore, utiliza o catálogo padrão
+        if (activeTurmas.length === 0) {
+            activeTurmas = DEFAULT_TURMAS;
+        }
+        activeTurmas = [...new Set(activeTurmas)].sort((a, b) => a.localeCompare('pt-BR'));
+        turmaSelect.innerHTML = `<option value="">Selecione a turma...</option>` +
+            activeTurmas.map(t =>
+                `<option value="${escapeHTML(t)}">${escapeHTML(t)}</option>`
+            ).join('');
+        if (curVal) turmaSelect.value = curVal;
+    }
+
+    // Disciplinas (Lista Dropdown alimentada pelo Firestore / Admin Panel)
+    const discSelect = document.getElementById('reserva-disciplina');
+    if (discSelect) {
+        const curVal = discSelect.value;
+        let activeDiscs = disciplinas.filter(d => d.ativo !== false).map(d => d.nome);
+        // Se ainda não houver disciplinas cadastradas no Firestore, utiliza o catálogo padrão
+        if (activeDiscs.length === 0) {
+            activeDiscs = DEFAULT_DISCIPLINAS;
+        }
+        activeDiscs = [...new Set(activeDiscs)].sort((a, b) => a.localeCompare('pt-BR'));
+        discSelect.innerHTML = `<option value="">Selecione a disciplina...</option>` +
+            activeDiscs.map(d =>
+                `<option value="${escapeHTML(d)}">${escapeHTML(d)}</option>`
+            ).join('');
+        if (curVal) discSelect.value = curVal;
     }
 }
 
@@ -189,7 +242,7 @@ function setupFormListeners() {
 
 /**
  * Abre o modal de reserva com dados pré-preenchidos
- * @param {object} preData - { labId, labNome, data, turno, aula }
+ * @param {object} preData - { labId, labNome, data, turno, aula, turma, disciplina }
  */
 export function openReservationForm(preData = {}) {
     const profile = getUserProfile();
@@ -198,6 +251,9 @@ export function openReservationForm(preData = {}) {
     // Reset form
     const form = document.getElementById('reserva-form');
     if (form) form.reset();
+
+    // Popula selects garantindo dados atualizados
+    populateSelects();
 
     // Pre-fill lab
     if (preData.labId) {
@@ -215,6 +271,18 @@ export function openReservationForm(preData = {}) {
     const turnoSelect = document.getElementById('reserva-turno');
     if (turnoSelect) {
         turnoSelect.value = preData.turno || getSuggestedTurno();
+    }
+
+    // Pre-fill turma se fornecida
+    if (preData.turma) {
+        const turmaSelect = document.getElementById('reserva-turma');
+        if (turmaSelect) turmaSelect.value = preData.turma;
+    }
+
+    // Pre-fill disciplina se fornecida
+    if (preData.disciplina) {
+        const discSelect = document.getElementById('reserva-disciplina');
+        if (discSelect) discSelect.value = preData.disciplina;
     }
 
     // Render aula pills
@@ -292,7 +360,12 @@ async function handleFormSubmit(e) {
     // Curso
     const cursoId = document.getElementById('reserva-curso')?.value;
     const cursoOption = document.getElementById('reserva-curso')?.selectedOptions[0];
-    const cursoNome = cursoOption?.textContent || '';
+    const cursoObj = cursos.find(c => c.id === cursoId);
+    let cursoNome = cursoObj?.nome || '';
+    let cursoSigla = cursoObj?.sigla || '';
+    if (!cursoNome && cursoOption && cursoId) {
+        cursoNome = cursoOption.textContent || '';
+    }
 
     // Aulas selecionadas
     const selectedAulas = [...document.querySelectorAll('.aula-pill.border-indigo-500')]
@@ -311,12 +384,14 @@ async function handleFormSubmit(e) {
     if (!data) return showToast('Selecione uma data.', 'warning');
     if (!turno) return showToast('Selecione um turno.', 'warning');
     if (selectedAulas.length === 0) return showToast('Selecione pelo menos uma aula.', 'warning');
-    if (!turma) return showToast('Informe a turma.', 'warning');
-    if (!disciplina) return showToast('Informe a disciplina.', 'warning');
+    if (!turma) return showToast('Selecione uma turma.', 'warning');
+    if (!disciplina) return showToast('Selecione uma disciplina.', 'warning');
     if (admin && !professorId) return showToast('Selecione um professor.', 'warning');
     if (recorrente && !recorrenteAte) return showToast('Informe a data final da recorrência.', 'warning');
 
     const labNome = document.getElementById('reserva-lab')?.selectedOptions[0]?.textContent || '';
+    const discObj = disciplinas.find(d => d.nome?.toLowerCase() === disciplina.toLowerCase() || d.id === disciplina);
+    const disciplinaSigla = discObj?.sigla || getDisciplinaSigla(disciplina);
 
     const reservaData = {
         labId,
@@ -328,8 +403,10 @@ async function handleFormSubmit(e) {
         professorNome,
         cursoId: cursoId || null,
         cursoNome: cursoNome || '',
+        cursoSigla: cursoSigla || '',
         turma,
         disciplina,
+        disciplinaSigla: disciplinaSigla || '',
         recursos,
         observacoes,
         recorrente: recorrente || false,
@@ -357,15 +434,16 @@ async function handleFormSubmit(e) {
 }
 
 /**
- * Configura modais de adição rápida (Professor e Curso)
+ * Configura modais de adição rápida (Professor, Curso, Turma e Disciplina)
  */
 function setupQuickAddModals() {
-    // Botão "+ Adicionar Professor"
+    // ------------------------------------
+    // PROFESSOR
+    // ------------------------------------
     document.getElementById('add-professor-btn')?.addEventListener('click', () => {
         openModal('quick-add-professor-modal');
     });
 
-    // Form de professor rápido
     document.getElementById('quick-professor-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const nome = document.getElementById('quick-professor-nome')?.value?.trim();
@@ -379,7 +457,6 @@ function setupQuickAddModals() {
             professores = await getProfessores();
             populateSelects();
 
-            // Seleciona o professor recém adicionado
             const profSelect = document.getElementById('reserva-professor');
             if (profSelect) profSelect.value = id;
 
@@ -396,12 +473,13 @@ function setupQuickAddModals() {
         closeModal('quick-add-professor-modal');
     });
 
-    // Botão "+ Adicionar Curso"
+    // ------------------------------------
+    // CURSO
+    // ------------------------------------
     document.getElementById('add-curso-btn')?.addEventListener('click', () => {
         openModal('quick-add-curso-modal');
     });
 
-    // Form de curso rápido
     document.getElementById('quick-curso-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const nome = document.getElementById('quick-curso-nome')?.value?.trim();
@@ -429,6 +507,85 @@ function setupQuickAddModals() {
 
     document.getElementById('cancel-quick-curso')?.addEventListener('click', () => {
         closeModal('quick-add-curso-modal');
+    });
+
+    // ------------------------------------
+    // TURMA (Salva no Firestore)
+    // ------------------------------------
+    document.getElementById('add-turma-btn')?.addEventListener('click', () => {
+        openModal('quick-add-turma-modal');
+    });
+
+    document.getElementById('quick-turma-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById('quick-turma-nome')?.value?.trim();
+        if (!nome) return showToast('Informe o nome da turma.', 'warning');
+
+        try {
+            showLoader(true, 'Cadastrando turma...');
+            await addTurma({ nome });
+            turmas = await getTurmas();
+            populateSelects();
+
+            const turmaSelect = document.getElementById('reserva-turma');
+            if (turmaSelect) turmaSelect.value = nome;
+
+            closeModal('quick-add-turma-modal');
+            document.getElementById('quick-turma-form')?.reset();
+        } catch (error) {
+            console.error(error);
+        } finally {
+            showLoader(false);
+        }
+    });
+
+    document.getElementById('cancel-quick-turma')?.addEventListener('click', () => {
+        closeModal('quick-add-turma-modal');
+    });
+
+    // ------------------------------------
+    // DISCIPLINA (Salva no Firestore)
+    // ------------------------------------
+    document.getElementById('add-disciplina-btn')?.addEventListener('click', () => {
+        openModal('quick-add-disciplina-modal');
+    });
+
+    document.getElementById('quick-disciplina-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById('quick-disciplina-nome')?.value?.trim();
+        const siglaInput = document.getElementById('quick-disciplina-sigla')?.value?.trim();
+        const sigla = siglaInput || getDisciplinaSigla(nome);
+        if (!nome) return showToast('Informe o nome da disciplina.', 'warning');
+
+        try {
+            showLoader(true, 'Cadastrando disciplina...');
+            await addDisciplina({ nome, sigla: sigla || '' });
+            disciplinas = await getDisciplinas();
+            populateSelects();
+
+            const discSelect = document.getElementById('reserva-disciplina');
+            if (discSelect) discSelect.value = nome;
+
+            closeModal('quick-add-disciplina-modal');
+            document.getElementById('quick-disciplina-form')?.reset();
+        } catch (error) {
+            console.error(error);
+        } finally {
+            showLoader(false);
+        }
+    });
+
+    document.getElementById('cancel-quick-disciplina')?.addEventListener('click', () => {
+        closeModal('quick-add-disciplina-modal');
+    });
+
+    // Fechar modais ao clicar no backdrop
+    ['quick-add-professor-modal', 'quick-add-curso-modal', 'quick-add-turma-modal', 'quick-add-disciplina-modal'].forEach(modalId => {
+        document.getElementById(modalId)?.addEventListener('click', (e) => {
+            if (e.target.id === modalId || e.target.classList.contains('modal-backdrop')) {
+                closeModal(modalId);
+            }
+        });
     });
 }
 
