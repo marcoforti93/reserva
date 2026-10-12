@@ -5,22 +5,28 @@
 // pills de aulas, recursos extras e reserva recorrente
 // ============================================================
 
-import { SCHEDULE_CONFIG, RECURSOS_DISPONIVEIS, DEFAULT_TURMAS, DEFAULT_DISCIPLINAS, getAulaLabel, getDisciplinaSigla } from './schedule-config.js';
+import { SCHEDULE_CONFIG, RECURSOS_DISPONIVEIS, DEFAULT_TURMAS, DEFAULT_DISCIPLINAS, getAulaLabel, getDisciplinaSigla, formatDisciplinaSelectLabel } from './schedule-config.js';
 import { getSuggestedTurno, formatDateISO, escapeHTML } from './utils.js';
 import { 
     getLaboratorios, getProfessores, getCursos, 
     getTurmas, addTurma, getDisciplinas, addDisciplina,
-    createReserva, createReservaRecorrente, addProfessor, addCurso 
+    createReserva, createReservaRecorrente, addProfessor, addCurso,
+    getOpcoesFormulario
 } from './sheet-service.js';
 import { openModal, closeModal, showToast, showLoader } from './ui-helpers.js';
 import { getCurrentUser, getUserProfile, isAdmin } from './auth.js';
-import { refreshCalendar } from './calendar-view.js';
+import { refreshCalendar, syncNewReservaInstant } from './calendar-view.js';
 
 let laboratorios = [];
 let professores = [];
 let cursos = [];
 let turmas = [];
 let disciplinas = [];
+// [ATUALIZAÇÃO] Opções restritas do professor logado (null = sem restrição / admin)
+// Formato: { restrito: true, atribuicoes: [{ curso, turma, disciplina, sigla }] }
+let opcoesProfessor = null;
+let formListenersInitialized = false;
+let quickAddModalsInitialized = false;
 
 /**
  * Inicializa o formulário de reserva
@@ -47,7 +53,150 @@ async function loadFormData() {
     } catch (err) {
         console.error('Erro ao carregar dados do formulário:', err);
     }
+
+    // [ATUALIZAÇÃO] Professor: carrega somente as suas atribuições (aba 'atribuicoes')
+    opcoesProfessor = null;
+    if (!isAdmin()) {
+        const opcoes = await getOpcoesFormulario(getUserProfile());
+        if (opcoes && opcoes.restrito) opcoesProfessor = opcoes;
+    }
+
     populateSelects();
+}
+
+// ============================================================
+// [ATUALIZAÇÃO] SELECTS EM CASCATA RESTRITOS ÀS ATRIBUIÇÕES DO PROFESSOR
+// Curso -> Turma -> Disciplina (somente combinações atribuídas ao docente)
+// ============================================================
+
+const normKey = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim().toUpperCase();
+
+const uniqSorted = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+function isRestrito() {
+    return !!(opcoesProfessor && opcoesProfessor.restrito);
+}
+
+function getAtribuicoes() {
+    return (opcoesProfessor && Array.isArray(opcoesProfessor.atribuicoes)) ? opcoesProfessor.atribuicoes : [];
+}
+
+/** Localiza a atribuição exata (curso + turma + disciplina) do professor logado */
+function findAtribuicao(curso, turma, disciplina) {
+    return getAtribuicoes().find(a =>
+        normKey(a.curso) === normKey(curso) &&
+        normKey(a.turma) === normKey(turma) &&
+        normKey(a.disciplina) === normKey(disciplina)
+    ) || null;
+}
+
+/** Preenche um <select> com opções (strings ou objetos { value, label }); auto-seleciona quando há uma única opção */
+function fillSelect(select, placeholder, items, { disabled = false, keepValue = '' } = {}) {
+    if (!select) return;
+    const normalized = (items || []).map(it => {
+        if (it && typeof it === 'object' && ('value' in it || 'label' in it)) {
+            return {
+                value: String(it.value ?? it.label ?? ''),
+                label: String(it.label ?? it.value ?? '')
+            };
+        }
+        return { value: String(it ?? ''), label: String(it ?? '') };
+    });
+
+    select.innerHTML = `<option value="">${escapeHTML(placeholder)}</option>` +
+        normalized.map(opt => `<option value="${escapeHTML(opt.value)}">${escapeHTML(opt.label)}</option>`).join('');
+    select.disabled = disabled;
+
+    const optValues = normalized.map(o => o.value);
+    if (keepValue && optValues.includes(keepValue)) select.value = keepValue;
+    else if (optValues.length === 1 && !disabled) select.value = optValues[0];
+}
+
+/** Popula o select de Cursos com os cursos atribuídos ao professor */
+function populateRestrictedSelects() {
+    const cursoSelect = document.getElementById('reserva-curso');
+    const lista = getAtribuicoes();
+
+    if (lista.length === 0) {
+        const msg = 'Nenhuma atribuição encontrada — procure a coordenação';
+        fillSelect(cursoSelect, msg, [], { disabled: true });
+        fillSelect(document.getElementById('reserva-turma'), msg, [], { disabled: true });
+        fillSelect(document.getElementById('reserva-disciplina'), msg, [], { disabled: true });
+        return;
+    }
+
+    const curVal = cursoSelect?.value || '';
+    fillSelect(cursoSelect, 'Selecione o curso', uniqSorted(lista.map(a => a.curso)), { keepValue: curVal });
+    refreshRestrictedTurmas();
+}
+
+/** Atualiza Turmas conforme o Curso selecionado */
+function refreshRestrictedTurmas() {
+    const curso = document.getElementById('reserva-curso')?.value || '';
+    const turmaSelect = document.getElementById('reserva-turma');
+    const curVal = turmaSelect?.value || '';
+
+    if (!curso) {
+        fillSelect(turmaSelect, 'Selecione primeiro o curso...', [], { disabled: true });
+    } else {
+        const turmasDoCurso = uniqSorted(getAtribuicoes()
+            .filter(a => normKey(a.curso) === normKey(curso))
+            .map(a => a.turma));
+        fillSelect(turmaSelect, 'Selecione a turma...', turmasDoCurso, { keepValue: curVal });
+    }
+    refreshRestrictedDisciplinas();
+}
+
+/** Atualiza Disciplinas conforme Curso + Turma selecionados (exibe abreviadas com sigla) */
+function refreshRestrictedDisciplinas() {
+    const curso = document.getElementById('reserva-curso')?.value || '';
+    const turma = document.getElementById('reserva-turma')?.value || '';
+    const discSelect = document.getElementById('reserva-disciplina');
+    const curVal = discSelect?.value || '';
+
+    if (!curso || !turma) {
+        fillSelect(discSelect, 'Selecione curso e turma...', [], { disabled: true });
+        return;
+    }
+
+    const atribs = getAtribuicoes()
+        .filter(a => normKey(a.curso) === normKey(curso) && normKey(a.turma) === normKey(turma));
+
+    const map = new Map();
+    atribs.forEach(a => {
+        const nome = (a.disciplina || '').trim();
+        if (!nome) return;
+        const key = normKey(nome);
+        if (!map.has(key)) {
+            map.set(key, {
+                value: nome,
+                label: formatDisciplinaSelectLabel(nome, a.sigla)
+            });
+        }
+    });
+
+    const discs = [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+    fillSelect(discSelect, 'Selecione a disciplina...', discs, { keepValue: curVal });
+}
+
+/** Pré-seleciona turma/disciplina vindas do calendário, respeitando as atribuições */
+function prefillRestricted(turma, disciplina) {
+    const match = getAtribuicoes().find(a =>
+        (!turma || normKey(a.turma) === normKey(turma)) &&
+        (!disciplina || normKey(a.disciplina) === normKey(disciplina) || normKey(a.sigla) === normKey(disciplina))
+    );
+    if (!match) return;
+    const cursoSelect = document.getElementById('reserva-curso');
+    if (cursoSelect) cursoSelect.value = match.curso;
+    refreshRestrictedTurmas();
+    const turmaSelect = document.getElementById('reserva-turma');
+    if (turmaSelect) turmaSelect.value = match.turma;
+    refreshRestrictedDisciplinas();
+    if (disciplina) {
+        const discSelect = document.getElementById('reserva-disciplina');
+        if (discSelect) discSelect.value = match.disciplina;
+    }
 }
 
 /**
@@ -75,6 +224,18 @@ function populateSelects() {
             ).join('');
         if (curVal) profSelect.value = curVal;
     }
+
+    // [ATUALIZAÇÃO] Professor: Curso/Turma/Disciplina vêm exclusivamente das atribuições
+    if (isRestrito()) {
+        populateRestrictedSelects();
+        return;
+    }
+
+    // Garante que selects voltem a ficar habilitados para admin
+    ['reserva-curso', 'reserva-turma', 'reserva-disciplina'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = false;
+    });
 
     // Cursos
     const cursoSelect = document.getElementById('reserva-curso');
@@ -104,21 +265,39 @@ function populateSelects() {
         if (curVal) turmaSelect.value = curVal;
     }
 
-    // Disciplinas (Lista Dropdown alimentada pelo Firestore / Admin Panel)
+    // Disciplinas (Lista Dropdown alimentada pelo Firestore / Admin Panel - exibe abreviadas com sigla)
     const discSelect = document.getElementById('reserva-disciplina');
     if (discSelect) {
         const curVal = discSelect.value;
-        let activeDiscs = disciplinas.filter(d => d.ativo !== false).map(d => d.nome);
-        // Se ainda não houver disciplinas cadastradas no Firestore, utiliza o catálogo padrão
+        const activeDiscs = disciplinas.filter(d => d.ativo !== false);
+        let items = [];
+
         if (activeDiscs.length === 0) {
-            activeDiscs = DEFAULT_DISCIPLINAS;
+            // Se ainda não houver disciplinas cadastradas no Firestore, utiliza o catálogo padrão
+            items = DEFAULT_DISCIPLINAS.map(d => ({
+                value: d,
+                label: formatDisciplinaSelectLabel(d)
+            }));
+        } else {
+            items = activeDiscs.map(d => {
+                const val = d.nome || d.id;
+                return {
+                    value: val,
+                    label: formatDisciplinaSelectLabel(val, d.sigla)
+                };
+            });
         }
-        activeDiscs = [...new Set(activeDiscs)].sort((a, b) => a.localeCompare('pt-BR'));
+
+        items = [...new Map(items.map(it => [it.value, it])).values()]
+            .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
         discSelect.innerHTML = `<option value="">Selecione a disciplina...</option>` +
-            activeDiscs.map(d =>
-                `<option value="${escapeHTML(d)}">${escapeHTML(d)}</option>`
+            items.map(d =>
+                `<option value="${escapeHTML(d.value)}">${escapeHTML(d.label)}</option>`
             ).join('');
-        if (curVal) discSelect.value = curVal;
+        if (curVal && items.some(it => it.value === curVal)) {
+            discSelect.value = curVal;
+        }
     }
 }
 
@@ -209,10 +388,21 @@ function renderRecursos() {
  * Configura listeners do formulário
  */
 function setupFormListeners() {
+    if (formListenersInitialized) return;
+    formListenersInitialized = true;
+
     // Turno change -> atualiza pills
     const turnoSelect = document.getElementById('reserva-turno');
     turnoSelect?.addEventListener('change', () => {
         renderAulaPills(turnoSelect.value);
+    });
+
+    // [ATUALIZAÇÃO] Cascata Curso -> Turma -> Disciplina (somente professor)
+    document.getElementById('reserva-curso')?.addEventListener('change', () => {
+        if (isRestrito()) refreshRestrictedTurmas();
+    });
+    document.getElementById('reserva-turma')?.addEventListener('change', () => {
+        if (isRestrito()) refreshRestrictedDisciplinas();
     });
 
     // Recorrente toggle
@@ -274,16 +464,29 @@ export function openReservationForm(preData = {}) {
         turnoSelect.value = preData.turno || getSuggestedTurno();
     }
 
+    // [ATUALIZAÇÃO] Professor: pré-preenchimento respeitando as atribuições
+    if (isRestrito()) {
+        if (preData.turma || preData.disciplina) prefillRestricted(preData.turma, preData.disciplina);
+    }
     // Pre-fill turma se fornecida
-    if (preData.turma) {
+    else if (preData.turma) {
         const turmaSelect = document.getElementById('reserva-turma');
         if (turmaSelect) turmaSelect.value = preData.turma;
     }
 
     // Pre-fill disciplina se fornecida
-    if (preData.disciplina) {
+    if (preData.disciplina && !isRestrito()) {
         const discSelect = document.getElementById('reserva-disciplina');
-        if (discSelect) discSelect.value = preData.disciplina;
+        if (discSelect) {
+            discSelect.value = preData.disciplina;
+            if (!discSelect.value) {
+                const foundOpt = Array.from(discSelect.options).find(opt => 
+                    opt.value.toLowerCase() === preData.disciplina.toLowerCase() ||
+                    getDisciplinaSigla(opt.value).toLowerCase() === preData.disciplina.toLowerCase()
+                );
+                if (foundOpt) discSelect.value = foundOpt.value;
+            }
+        }
     }
 
     // Render aula pills
@@ -362,7 +565,7 @@ async function handleFormSubmit(e) {
     }
 
     // Curso
-    const cursoId = document.getElementById('reserva-curso')?.value;
+    let cursoId = document.getElementById('reserva-curso')?.value;
     const cursoOption = document.getElementById('reserva-curso')?.selectedOptions[0];
     const cursoObj = cursos.find(c => c.id === cursoId);
     let cursoNome = cursoObj?.nome || '';
@@ -393,9 +596,23 @@ async function handleFormSubmit(e) {
     if (admin && !professorId) return showToast('Selecione um professor.', 'warning');
     if (recorrente && !recorrenteAte) return showToast('Informe a data final da recorrência.', 'warning');
 
+    // [ATUALIZAÇÃO] Professor só pode reservar combinações Curso/Turma/Disciplina atribuídas a ele
+    let atribuicao = null;
+    if (isRestrito()) {
+        atribuicao = findAtribuicao(cursoId, turma, disciplina);
+        if (!atribuicao) {
+            return showToast('Esta disciplina/turma não está atribuída a você. Procure a coordenação.', 'error', 5000);
+        }
+        // No modo restrito o value do curso é o nome; vincula ao ID do cadastro se existir
+        const cursoCadastrado = cursos.find(c => normKey(c.nome) === normKey(atribuicao.curso));
+        cursoId = cursoCadastrado?.id || null;
+        cursoNome = atribuicao.curso;
+        cursoSigla = cursoCadastrado?.sigla || '';
+    }
+
     const labNome = document.getElementById('reserva-lab')?.selectedOptions[0]?.textContent || '';
     const discObj = disciplinas.find(d => d.nome?.toLowerCase() === disciplina.toLowerCase() || d.id === disciplina);
-    const disciplinaSigla = discObj?.sigla || getDisciplinaSigla(disciplina);
+    const disciplinaSigla = atribuicao?.sigla || discObj?.sigla || getDisciplinaSigla(disciplina);
 
     const reservaData = {
         labId,
@@ -422,21 +639,21 @@ async function handleFormSubmit(e) {
     };
 
     try {
-        showLoader(true, 'Salvando reserva...');
-
         if (recorrente && recorrenteAte) {
             await createReservaRecorrente(reservaData, recorrenteAte, admin);
         } else {
             const result = await createReserva(reservaData, admin);
-            if (!result.success) return; // Conflito - toast já mostrado
+            if (!result.success) return; // Conflito - toast já mostrado no checkConflict
         }
 
+        // 1. Fecha o modal de reserva imediatamente
         closeModal('reserva-modal');
-        refreshCalendar();
+
+        // 2. Posiciona o calendário e exibe a nova reserva instantaneamente (0ms)
+        syncNewReservaInstant(reservaData);
     } catch (error) {
         console.error('Erro ao salvar reserva:', error);
-    } finally {
-        showLoader(false);
+        showToast('Erro ao salvar reserva: ' + (error.message || error), 'error');
     }
 }
 
@@ -444,6 +661,9 @@ async function handleFormSubmit(e) {
  * Configura modais de adição rápida (Professor, Curso, Turma e Disciplina)
  */
 function setupQuickAddModals() {
+    if (quickAddModalsInitialized) return;
+    quickAddModalsInitialized = true;
+
     // ------------------------------------
     // PROFESSOR
     // ------------------------------------

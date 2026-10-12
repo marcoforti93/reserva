@@ -65,7 +65,8 @@ export function showToast(message, type = 'info', duration = 3500) {
 export function showConfirm(title, message, confirmText = 'Confirmar', variant = 'primary') {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
-        overlay.className = 'fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fadeIn';
+        overlay.id = 'confirm-dialog';
+        overlay.className = 'confirm-overlay fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fadeIn';
         overlay.innerHTML = `
             <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="confirm-backdrop"></div>
             <div class="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-scaleIn">
@@ -84,19 +85,37 @@ export function showConfirm(title, message, confirmText = 'Confirmar', variant =
         `;
 
         document.body.appendChild(overlay);
+        syncBodyScrollLock();
 
         const close = (result) => {
             overlay.classList.add('animate-fadeOut');
             setTimeout(() => {
                 overlay.remove();
+                syncBodyScrollLock();
                 resolve(result);
-            }, 200);
+            }, 180);
         };
 
         overlay.querySelector('#confirm-backdrop').addEventListener('click', () => close(false));
         overlay.querySelector('#confirm-cancel').addEventListener('click', () => close(false));
         overlay.querySelector('#confirm-ok').addEventListener('click', () => close(true));
     });
+}
+
+/**
+ * Sincroniza o bloqueio de rolagem do body de acordo com modais abertos
+ */
+export function syncBodyScrollLock() {
+    const openModals = document.querySelectorAll(
+        '[id$="-modal"]:not(.hidden), [id$="-dialog"]:not(.hidden), .confirm-overlay:not(.hidden)'
+    );
+    if (openModals.length > 0) {
+        document.body.classList.add('modal-open');
+        document.body.style.overflow = 'hidden';
+    } else {
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+    }
 }
 
 /**
@@ -125,7 +144,10 @@ export function showLoader(show, message = 'Carregando...') {
         }
     } else if (loader) {
         loader.classList.add('hidden');
-        setTimeout(() => loader.remove(), 100);
+        setTimeout(() => {
+            loader.remove();
+            syncBodyScrollLock();
+        }, 100);
     }
 }
 
@@ -141,7 +163,7 @@ export function openModal(modalId) {
     requestAnimationFrame(() => {
         modal.querySelector('.modal-content')?.classList.add('animate-scaleIn');
     });
-    document.body.style.overflow = 'hidden';
+    syncBodyScrollLock();
 }
 
 /**
@@ -150,22 +172,55 @@ export function openModal(modalId) {
  */
 export function closeModal(modalId) {
     const modal = document.getElementById(modalId);
-    if (!modal) return;
+    if (!modal) {
+        syncBodyScrollLock();
+        return;
+    }
     const content = modal.querySelector('.modal-content');
-    if (content) {
-        content.classList.add('animate-scaleOut');
-        setTimeout(() => {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            content.classList.remove('animate-scaleOut', 'animate-scaleIn');
-            document.body.style.overflow = '';
-        }, 200);
-    } else {
+    const finalizeClose = () => {
         modal.classList.add('hidden');
         modal.classList.remove('flex');
-        document.body.style.overflow = '';
+        if (content) {
+            content.classList.remove('animate-scaleOut', 'animate-scaleIn');
+        }
+        syncBodyScrollLock();
+    };
+
+    if (content) {
+        content.classList.add('animate-scaleOut');
+        setTimeout(finalizeClose, 180);
+    } else {
+        finalizeClose();
     }
 }
+
+// Expõe helpers globalmente para handlers inline do HTML
+if (typeof window !== 'undefined') {
+    window.openModal = openModal;
+    window.closeModal = closeModal;
+    window.syncBodyScrollLock = syncBodyScrollLock;
+}
+
+// Fechamento com tecla Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const visibleModals = Array.from(document.querySelectorAll('[id$="-modal"]:not(.hidden)'));
+        if (visibleModals.length > 0) {
+            const topModal = visibleModals[visibleModals.length - 1];
+            closeModal(topModal.id);
+        }
+    }
+});
+
+// Fechamento ao clicar em qualquer backdrop de modal
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('modal-backdrop')) {
+        const parentModal = e.target.closest('[id$="-modal"]');
+        if (parentModal) {
+            closeModal(parentModal.id);
+        }
+    }
+});
 
 /**
  * Cria um badge/chip de status com a cor adequada

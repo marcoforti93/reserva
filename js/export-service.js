@@ -1,12 +1,12 @@
 // ============================================================
 // export-service.js
 // Exportação de dados do calendário para Excel (.xlsx) e CSV
-// Permite download com ou sem reservas para visão geral dos administradores
+// Formatação fidedigna à grade visual do calendário online
 // ============================================================
 
-import { SCHEDULE_CONFIG } from './schedule-config.js';
+import { SCHEDULE_CONFIG, STATUS_CONFIG, getDisciplinaSigla } from './schedule-config.js';
 import { formatDateBR, formatDateISO, getDayName, getWeekDates } from './utils.js';
-import { getLaboratorios, getReservasSemana } from './sheet-service.js';
+import { getLaboratorios, getCursos, getDisciplinas, getReservasSemana, normalizeDate } from './sheet-service.js';
 import { showToast, showLoader, openModal, closeModal } from './ui-helpers.js';
 import { getCurrentDate, getCurrentTurno } from './calendar-view.js';
 import { isAdmin } from './auth.js';
@@ -136,7 +136,7 @@ async function handleExportSubmit() {
     const selectedTurno = turnoOption === 'atual' ? curTurno : turnoOption;
 
     try {
-        showLoader(true, 'Gerando planilha do calendário...');
+        showLoader(true, 'Gerando planilha formatada do calendário...');
         await generateAndDownloadSpreadsheet({
             mode,
             scope,
@@ -154,33 +154,383 @@ async function handleExportSubmit() {
 }
 
 /**
- * Abre o Google Planilhas (nova aba ou planilha conectada)
+ * Abre o Google Planilhas para importação
  */
 function handleOpenGoogleSheets() {
-    if (isApiConfigured()) {
-        const apiUrl = getSheetApiUrl();
-        // Se houver uma planilha conectada, abre nova planilha ou tela do Google Sheets
-        window.open('https://sheets.new', '_blank');
-        showToast('Para importar no Google Sheets: Arquivo > Importar > Fazer upload da planilha baixada.', 'info', 7000);
-    } else {
-        window.open('https://sheets.new', '_blank');
-        showToast('Para importar no Google Sheets: Arquivo > Importar > Fazer upload do arquivo.', 'info', 7000);
+    window.open('https://sheets.new', '_blank');
+    showToast('Dica: No Google Sheets, clique em Arquivo > Importar > Fazer upload para abrir a planilha gerada.', 'info', 7000);
+}
+
+/**
+ * Configurações visuais e temas de cores por turno (idêntico ao modelo da imagem)
+ */
+const TURNO_THEMES = {
+    manha: {
+        label: 'MANHÃ',
+        bg: 'D9E1F2', // Azul pastel claro
+        aulasCount: 7
+    },
+    tarde: {
+        label: 'TARDE',
+        bg: 'FCE4D6', // Pêssego pastel claro
+        aulasCount: 6
+    },
+    noite: {
+        label: 'NOITE',
+        bg: 'FFF2CC', // Amarelo pastel claro
+        aulasCount: 5
     }
+};
+
+const HEADER_BG = 'D9D9D9'; // Cinza claro padrão do cabeçalho dos laboratórios
+
+const THIN_BORDER = {
+    top: { style: 'thin', color: { rgb: '000000' } },
+    bottom: { style: 'thin', color: { rgb: '000000' } },
+    left: { style: 'thin', color: { rgb: '000000' } },
+    right: { style: 'thin', color: { rgb: '000000' } }
+};
+
+const FONT_HEADER = { name: 'Calibri', sz: 10, bold: true, color: { rgb: '000000' } };
+const FONT_DAY = { name: 'Calibri', sz: 11, bold: true, color: { rgb: '000000' } };
+const FONT_SHIFT = { name: 'Calibri', sz: 10, bold: true, color: { rgb: '000000' } };
+const FONT_AULA = { name: 'Calibri', sz: 9, bold: true, color: { rgb: '000000' } };
+const FONT_CELL = { name: 'Calibri', sz: 9, bold: true, color: { rgb: '000000' } };
+const FONT_MAINT = { name: 'Calibri', sz: 9, bold: true, color: { rgb: '991B1B' } };
+
+/**
+ * Formata um texto com quebra de linha entre cada letra para exibição vertical (ex: S\nE\nG\nU\nN\nD\nA)
+ */
+function formatVerticalLetters(text) {
+    if (!text) return '';
+    return String(text).toUpperCase().split('').join('\n');
+}
+
+/**
+ * Extrai sigla curta da turma (ex: "3D", "1A", "2B", "1G", "1J", "3C")
+ */
+function extractShortTurma(turmaStr) {
+    if (!turmaStr) return '';
+    const clean = String(turmaStr).trim();
+    if (clean.length <= 4) return clean.toUpperCase();
+
+    // Procura padrão como 1A, 2B, 3C, 3D, 1G, 1J, 2D, 3-DIV
+    const m = clean.match(/\b([1-4][º°]?\s*[A-Z](?:-DIV)?)\b/i) || clean.match(/\b([1-4][A-Z])\b/i);
+    if (m) {
+        return m[1].replace(/[º°\s]/g, '').toUpperCase();
+    }
+
+    // Se tiver parênteses, ex: "(1A)"
+    const mParen = clean.match(/\(([^)]+)\)/);
+    if (mParen && mParen[1].trim().length <= 4) {
+        return mParen[1].trim().toUpperCase();
+    }
+
+    // Padrão de curso abreviado com ano: "1º M-TEC Logística" -> "1LOG"
+    const mNum = clean.match(/^([1-4])[º°]/);
+    if (mNum) {
+        const n = mNum[1];
+        if (/desenvolvimento/i.test(clean)) return `${n}DS`;
+        if (/internet|info/i.test(clean)) return `${n}II`;
+        if (/administra/i.test(clean)) return `${n}ADM`;
+        if (/log[ií]stica/i.test(clean)) return `${n}LOG`;
+        if (/recursos/i.test(clean)) return `${n}RH`;
+        if (/marketing/i.test(clean)) return `${n}MKT`;
+        if (/contabilidade/i.test(clean)) return `${n}CONT`;
+        if (/enfermagem/i.test(clean)) return `${n}ENF`;
+        return `${n}º`;
+    }
+
+    return clean.substring(0, 5);
+}
+
+/**
+ * Formata o conteúdo resumido da célula conforme modelo (ex: "EAM 3D", "Juliano 3B", "xxxx")
+ */
+function formatCompactScheduleCell(res, discList = []) {
+    if (!res) return '';
+
+    if (res.status === 'manutencao') {
+        return 'xxxx';
+    }
+
+    // 1. Sigla da Disciplina
+    let sigla = res.disciplinaSigla || '';
+    const rawDisc = res.disciplinaNome || res.disciplina || '';
+    if (!sigla && rawDisc) {
+        const found = discList.find(d =>
+            d.nome?.toLowerCase().trim() === rawDisc.toLowerCase().trim() ||
+            String(d.id) === String(rawDisc)
+        );
+        sigla = found?.sigla || getDisciplinaSigla(rawDisc) || '';
+    }
+    if (!sigla && rawDisc) {
+        sigla = getDisciplinaSigla(rawDisc) || rawDisc;
+    }
+    if (sigla.length > 9) {
+        sigla = sigla.substring(0, 9);
+    }
+
+    // 2. Primeiro nome do Professor
+    const profRaw = (res.professorNome || '').replace(/^(prof\.|profª\.|professor|professora)\s+/i, '').trim();
+    const profPrimeiro = profRaw.split(/\s+/)[0] || '';
+
+    // 3. Turma curta
+    const turmaRaw = res.turmaNome || res.turma || '';
+    const turmaCurta = extractShortTurma(turmaRaw);
+
+    // Prioriza Sigla da Disciplina + Turma; se não houver disciplina, usa Professor + Turma
+    if (sigla && sigla.toLowerCase() !== 'sem disciplina') {
+        return turmaCurta ? `${sigla} ${turmaCurta}`.trim() : sigla;
+    } else if (profPrimeiro) {
+        return turmaCurta ? `${profPrimeiro} ${turmaCurta}`.trim() : profPrimeiro;
+    } else if (turmaCurta) {
+        return turmaCurta;
+    }
+
+    return 'Ocupado';
+}
+
+/**
+ * Constrói a planilha compacta e estilizada em guia única com SheetJS / xlsx-js-style
+ */
+function buildCompactScheduleWorksheet(XLSX, { dates, turnosList, labs, reservas, mode, discList }) {
+    const ws = {};
+    const merges = [];
+    const rowHeights = [];
+
+    // Linha 0: Cabeçalho dos Laboratórios
+    // Colunas A, B, C vazias com fundo cinza e borda
+    for (let c = 0; c < 3; c++) {
+        const ref = XLSX.utils.encode_cell({ r: 0, c });
+        ws[ref] = {
+            t: 's',
+            v: '',
+            s: {
+                fill: { patternType: 'solid', fgColor: { rgb: HEADER_BG } },
+                border: THIN_BORDER
+            }
+        };
+    }
+
+    // Colunas D em diante: Nome de cada laboratório
+    labs.forEach((lab, idx) => {
+        const c = 3 + idx;
+        const ref = XLSX.utils.encode_cell({ r: 0, c });
+        ws[ref] = {
+            t: 's',
+            v: lab.nome || `LAB ${idx + 1}`,
+            s: {
+                fill: { patternType: 'solid', fgColor: { rgb: HEADER_BG } },
+                font: FONT_HEADER,
+                alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+                border: THIN_BORDER
+            }
+        };
+    });
+    rowHeights.push({ hpt: 24 });
+
+    let currentRow = 1;
+
+    // Itera por cada dia da semana (empilhados um abaixo do outro)
+    dates.forEach((d) => {
+        const dISO = formatDateISO(d);
+        const dayBase = getDayName(d).replace('-feira', '').toUpperCase();
+        const dayVertical = formatVerticalLetters(dayBase);
+        const dayStartRow = currentRow;
+
+        turnosList.forEach((tKey) => {
+            const theme = TURNO_THEMES[tKey] || { label: tKey.toUpperCase(), bg: 'F2F2F2', aulasCount: 5 };
+            const shiftVertical = formatVerticalLetters(theme.label);
+            const tCfg = SCHEDULE_CONFIG[tKey];
+            const aulas = tCfg?.aulas || Array.from({ length: theme.aulasCount }, (_, i) => ({ numero: i + 1 }));
+            const shiftStartRow = currentRow;
+
+            aulas.forEach((aula) => {
+                const r = currentRow;
+
+                // Coluna A (Dia da Semana - mesclada depois)
+                const refDia = XLSX.utils.encode_cell({ r, c: 0 });
+                ws[refDia] = {
+                    t: 's',
+                    v: r === dayStartRow ? dayVertical : '',
+                    s: {
+                        fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
+                        font: FONT_DAY,
+                        alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+                        border: THIN_BORDER
+                    }
+                };
+
+                // Coluna B (Turno - mesclada depois)
+                const refTurno = XLSX.utils.encode_cell({ r, c: 1 });
+                ws[refTurno] = {
+                    t: 's',
+                    v: r === shiftStartRow ? shiftVertical : '',
+                    s: {
+                        fill: { patternType: 'solid', fgColor: { rgb: theme.bg } },
+                        font: FONT_SHIFT,
+                        alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+                        border: THIN_BORDER
+                    }
+                };
+
+                // Coluna C (Aula: 1a., 2a., 3a., ...)
+                const refAula = XLSX.utils.encode_cell({ r, c: 2 });
+                ws[refAula] = {
+                    t: 's',
+                    v: `${aula.numero}a.`,
+                    s: {
+                        fill: { patternType: 'solid', fgColor: { rgb: theme.bg } },
+                        font: FONT_AULA,
+                        alignment: { vertical: 'center', horizontal: 'center' },
+                        border: THIN_BORDER
+                    }
+                };
+
+                // Colunas dos Laboratórios
+                labs.forEach((lab, labIdx) => {
+                    const c = 3 + labIdx;
+                    const refCell = XLSX.utils.encode_cell({ r, c });
+
+                    let cellText = '';
+                    let isMaint = false;
+
+                    if (mode !== 'sem-reservas') {
+                        const res = reservas.find(resItem =>
+                            String(resItem.labId) === String(lab.id) &&
+                            resItem.normData === dISO &&
+                            resItem.turno === tKey &&
+                            (resItem.aulas || []).includes(aula.numero)
+                        );
+                        if (res) {
+                            cellText = formatCompactScheduleCell(res, discList);
+                            isMaint = res.status === 'manutencao';
+                        }
+                    }
+
+                    ws[refCell] = {
+                        t: 's',
+                        v: cellText,
+                        s: {
+                            fill: { patternType: 'solid', fgColor: { rgb: theme.bg } },
+                            font: isMaint ? FONT_MAINT : FONT_CELL,
+                            alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+                            border: THIN_BORDER
+                        }
+                    };
+                });
+
+                rowHeights.push({ hpt: 19 });
+                currentRow++;
+            });
+
+            // Mescla células do Turno (Coluna B)
+            const shiftEndRow = currentRow - 1;
+            if (shiftEndRow >= shiftStartRow) {
+                merges.push({
+                    s: { r: shiftStartRow, c: 1 },
+                    e: { r: shiftEndRow, c: 1 }
+                });
+            }
+        });
+
+        // Mescla células do Dia da Semana (Coluna A)
+        const dayEndRow = currentRow - 1;
+        if (dayEndRow >= dayStartRow) {
+            merges.push({
+                s: { r: dayStartRow, c: 0 },
+                e: { r: dayEndRow, c: 0 }
+            });
+        }
+    });
+
+    const totalCols = 3 + labs.length;
+    const maxRow = currentRow - 1;
+
+    ws['!ref'] = XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: maxRow, c: totalCols - 1 }
+    });
+    ws['!merges'] = merges;
+    ws['!rows'] = rowHeights;
+    ws['!cols'] = [
+        { wch: 4.5 }, // Coluna A: Dia
+        { wch: 4 },   // Coluna B: Turno
+        { wch: 4.5 }, // Coluna C: Aula
+        ...labs.map(l => ({ wch: Math.max(10, (l.nome || '').length + 2) }))
+    ];
+
+    // Congela a linha do cabeçalho para navegação confortável
+    ws['!views'] = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
+
+    return ws;
+}
+
+/**
+ * Constrói array bidimensional para fallback em CSV estruturado
+ */
+function buildCompactScheduleAOA({ dates, turnosList, labs, reservas, mode, discList }) {
+    const aoa = [];
+
+    // Cabeçalho
+    aoa.push(['DIA', 'TURNO', 'AULA', ...labs.map(l => l.nome || 'LAB')]);
+
+    dates.forEach(d => {
+        const dISO = formatDateISO(d);
+        const dayName = getDayName(d).replace('-feira', '').toUpperCase();
+
+        turnosList.forEach(tKey => {
+            const theme = TURNO_THEMES[tKey] || { label: tKey.toUpperCase(), aulasCount: 5 };
+            const tCfg = SCHEDULE_CONFIG[tKey];
+            const aulas = tCfg?.aulas || Array.from({ length: theme.aulasCount }, (_, i) => ({ numero: i + 1 }));
+
+            aulas.forEach((aula, idx) => {
+                const row = [
+                    idx === 0 ? dayName : '',
+                    idx === 0 ? theme.label : '',
+                    `${aula.numero}a.`
+                ];
+
+                labs.forEach(lab => {
+                    let cellVal = '';
+                    if (mode !== 'sem-reservas') {
+                        const res = reservas.find(r =>
+                            String(r.labId) === String(lab.id) &&
+                            r.normData === dISO &&
+                            r.turno === tKey &&
+                            (r.aulas || []).includes(aula.numero)
+                        );
+                        if (res) cellVal = formatCompactScheduleCell(res, discList);
+                    }
+                    row.push(cellVal);
+                });
+
+                aoa.push(row);
+            });
+        });
+    });
+
+    return aoa;
 }
 
 /**
  * Gera os dados da planilha e dispara o download no formato escolhido
  */
 async function generateAndDownloadSpreadsheet({ mode, scope, turno, date, format }) {
-    // 1. Carrega laboratórios ativos
-    const allLabs = await getLaboratorios();
-    const labs = allLabs.filter(l => l.ativo !== false);
+    // 1. Carrega dados essenciais em paralelo
+    const [allLabs, cursosList, discList] = await Promise.all([
+        getLaboratorios(),
+        getCursos().catch(() => []),
+        getDisciplinas().catch(() => [])
+    ]);
 
+    const labs = allLabs.filter(l => l.ativo !== false);
     if (labs.length === 0) {
-        throw new Error('Nenhum laboratório cadastrado ou ativo para exportar.');
+        throw new Error('Nenhum laboratório ativo encontrado para exportar.');
     }
 
-    // 2. Determina datas
+    // 2. Determina datas do período selecionado
     let dates = [];
     if (scope === 'semana') {
         dates = getWeekDates(date);
@@ -200,253 +550,107 @@ async function generateAndDownloadSpreadsheet({ mode, scope, turno, date, format
     const datesISO = dates.map(d => formatDateISO(d));
     const reservas = await getReservasSemana(datesISO);
 
-    // Normaliza datas das reservas para comparação precisa
     const normalizedReservas = (reservas || []).map(r => ({
         ...r,
         normData: normalizeDate(r.data)
     }));
 
-    // 5. Monta a Grade Matriz (Visual Aulas x Laboratórios)
-    const gridAOA = buildCalendarGridAOA({
-        dates,
-        turnosList,
-        labs,
-        reservas: normalizedReservas,
-        mode
-    });
+    // Se a exportação for da semana e houver agendamentos cadastrados no sábado, inclui o sábado
+    if (scope === 'semana' && dates.length === 5) {
+        const saturday = new Date(dates[0]);
+        saturday.setDate(saturday.getDate() + 5);
+        const satISO = formatDateISO(saturday);
+        if (normalizedReservas.some(r => r.normData === satISO)) {
+            dates.push(saturday);
+        }
+    }
 
-    // 6. Monta a Tabela Detalhada de Agendamentos
-    const listAOA = buildReservasTableAOA({
-        dates,
-        turnosList,
-        labs,
-        reservas: normalizedReservas,
-        mode
-    });
-
-    // 7. Nome do arquivo
-    const prefix = mode === 'com-reservas' ? 'Calendario_Reservas_ETEC' : 'Modelo_Grade_Horaria_ETEC';
+    // 5. Define o nome do arquivo gerado
+    const prefix = mode === 'com-reservas' ? 'Grade_Horaria_Laboratorios' : 'Modelo_Grade_Horaria';
     const dateTag = scope === 'semana'
         ? `${formatDateISO(dates[0])}_a_${formatDateISO(dates[dates.length - 1])}`
         : formatDateISO(dates[0]);
     const fileName = `${prefix}_${dateTag}.${format}`;
 
-    // 8. Exporta conforme formato
-    if (format === 'xlsx' && typeof window.XLSX !== 'undefined') {
-        exportViaSheetJS({
-            fileName,
-            gridAOA,
-            listAOA,
-            mode,
-            labsCount: labs.length
-        });
-        showToast('Planilha Excel (.xlsx) baixada com sucesso!', 'success');
-    } else {
-        // Fallback para CSV estruturado com UTF-8 BOM
-        exportViaCSV({
-            fileName: fileName.replace('.xlsx', '.csv'),
-            aoaData: gridAOA
-        });
-        showToast('Planilha CSV compatível com Excel e Google Sheets baixada com sucesso!', 'success');
-    }
-}
-
-/**
- * Constrói a Matriz da Grade do Calendário (Linhas = Aulas, Colunas = Laboratórios)
- */
-function buildCalendarGridAOA({ dates, turnosList, labs, reservas, mode }) {
-    const aoa = [];
-
-    // Cabeçalho institucional
-    aoa.push(['ESPAÇO ETEC - RESERVA DE LABORATÓRIOS · ETEC DR. DOMINGOS MINICUCCI FILHO (UNIDADE 051)']);
-    aoa.push([mode === 'com-reservas' ? 'VISÃO GERAL DO CALENDÁRIO COM RESERVAS DOS PROFESSORES' : 'GRADE HORÁRIA DOS LABORATÓRIOS (MODELO SEM RESERVAS)']);
-    aoa.push([`Gerado em: ${new Date().toLocaleString('pt-BR')}`]);
-    aoa.push([]); // Linha em branco
-
-    dates.forEach((d) => {
-        const dISO = formatDateISO(d);
-        const dBR = formatDateBR(d);
-        const dNome = getDayName(d);
-
-        turnosList.forEach(tKey => {
-            const tCfg = SCHEDULE_CONFIG[tKey];
-            if (!tCfg) return;
-
-            // Seção do Dia e Turno
-            aoa.push([`📅 ${dNome.toUpperCase()}, ${dBR} — TURNO DA ${tCfg.label.toUpperCase()}`]);
-
-            // Linha de cabeçalho das colunas: Horário/Aula + Nome dos Laboratórios
-            const colHeaders = ['Horário / Aula', ...labs.map(l => l.nome)];
-            aoa.push(colHeaders);
-
-            // Linhas de cada aula
-            tCfg.aulas.forEach(aula => {
-                // Indicador de Intervalo antes da aula, se configurado
-                if (tCfg.intervalo && aula.numero === tCfg.intervalo.aposAula + 1) {
-                    const intervaloRow = [
-                        `☕ Intervalo (${tCfg.intervalo.inicio} às ${tCfg.intervalo.fim})`,
-                        ...labs.map(() => 'INTERVALO')
-                    ];
-                    aoa.push(intervaloRow);
-                }
-
-                const row = [`${aula.numero}ª Aula (${aula.inicio} - ${aula.fim})`];
-
-                labs.forEach(lab => {
-                    if (mode === 'sem-reservas') {
-                        row.push('Livre');
-                    } else {
-                        const res = reservas.find(r =>
-                            String(r.labId) === String(lab.id) &&
-                            r.normData === dISO &&
-                            r.turno === tKey &&
-                            (r.aulas || []).includes(aula.numero)
-                        );
-
-                        if (res) {
-                            const details = [];
-                            if (res.professorNome) details.push(`Prof: ${res.professorNome}`);
-                            if (res.cursoNome || res.turma) details.push(`Curso: ${res.cursoNome || res.turma}`);
-                            const disc = res.disciplinaSigla || res.disciplinaNome || res.disciplina;
-                            if (disc) details.push(`Disc: ${disc}`);
-                            if (res.status && res.status !== 'confirmado') {
-                                details.push(`[${res.status.toUpperCase()}]`);
-                            }
-                            row.push(details.join(' | '));
-                        } else {
-                            row.push('Livre');
-                        }
-                    }
-                });
-
-                aoa.push(row);
+    // 6. Exportação Excel (.xlsx) ultracompacta em guia única
+    if (format === 'xlsx') {
+        const XLSX = await ensureXLSX();
+        if (XLSX) {
+            const wb = XLSX.utils.book_new();
+            const ws = buildCompactScheduleWorksheet(XLSX, {
+                dates,
+                turnosList,
+                labs,
+                reservas: normalizedReservas,
+                mode,
+                discList
             });
 
-            aoa.push([]); // Espaço entre turnos
-        });
+            // Adiciona APENAS UMA GUIA conforme solicitação do usuário
+            XLSX.utils.book_append_sheet(wb, ws, 'Grade_Horaria');
 
-        aoa.push([]); // Espaço entre dias
+            triggerExcelDownload(XLSX, wb, fileName);
+            showToast('Grade horária resumida em guia única baixada com sucesso!', 'success');
+            return;
+        }
+    }
+
+    // 7. Fallback para CSV estruturado com UTF-8 BOM
+    const aoa = buildCompactScheduleAOA({
+        dates,
+        turnosList,
+        labs,
+        reservas: normalizedReservas,
+        mode,
+        discList
     });
-
-    return aoa;
+    exportViaCSV({
+        fileName: fileName.replace('.xlsx', '.csv'),
+        aoaData: aoa
+    });
+    showToast('Planilha CSV da grade horária baixada com sucesso!', 'success');
 }
 
 /**
- * Constrói tabela detalhada de agendamentos (linha a linha)
+ * Garante que a biblioteca SheetJS/xlsx-js-style esteja carregada e pronta para uso
  */
-function buildReservasTableAOA({ dates, turnosList, labs, reservas, mode }) {
-    const aoa = [];
+async function ensureXLSX() {
+    if (typeof window.XLSX !== 'undefined') return window.XLSX;
 
-    // Cabeçalho da tabela de listagem
-    aoa.push([
-        'Data',
-        'Dia da Semana',
-        'Turno',
-        'Aula(s)',
-        'Laboratório',
-        'Professor',
-        'Curso',
-        'Turma',
-        'Disciplina',
-        'Sigla',
-        'Status',
-        'Recursos Extras',
-        'Observações',
-        'Recorrente'
-    ]);
-
-    if (mode === 'sem-reservas') {
-        aoa.push(['Nenhuma reserva incluída (Modelo de Grade em Branco).']);
-        return aoa;
-    }
-
-    const datesISO = dates.map(d => formatDateISO(d));
-
-    // Filtra reservas que pertencem às datas e turnos selecionados
-    const filtered = reservas.filter(r =>
-        datesISO.includes(r.normData) &&
-        turnosList.includes(r.turno)
-    );
-
-    // Ordena por data, turno, laboratório e aula
-    filtered.sort((a, b) => {
-        const dCompare = (a.normData || '').localeCompare(b.normData || '');
-        if (dCompare !== 0) return dCompare;
-        return (a.labNome || '').localeCompare(b.labNome || '');
+    return new Promise((resolve) => {
+        const localScript = document.createElement('script');
+        localScript.src = 'js/xlsx-style.bundle.js';
+        localScript.onload = () => resolve(window.XLSX || null);
+        localScript.onerror = () => {
+            const fallback = document.createElement('script');
+            fallback.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            fallback.onload = () => resolve(window.XLSX || null);
+            fallback.onerror = () => resolve(null);
+            document.head.appendChild(fallback);
+        };
+        document.head.appendChild(localScript);
     });
-
-    if (filtered.length === 0) {
-        aoa.push(['Nenhum agendamento encontrado no período selecionado.']);
-        return aoa;
-    }
-
-    filtered.forEach(r => {
-        const dObj = new Date(r.normData + 'T00:00:00');
-        const dBR = formatDateBR(dObj);
-        const dNome = getDayName(dObj);
-        const tLabel = SCHEDULE_CONFIG[r.turno]?.label || r.turno;
-        const aulasTexto = (r.aulas || []).map(a => `${a}ª aula`).join(', ') || 'Todas';
-
-        aoa.push([
-            dBR,
-            dNome,
-            tLabel,
-            aulasTexto,
-            r.labNome || '',
-            r.professorNome || '',
-            r.cursoNome || '',
-            r.turmaNome || r.turma || '',
-            r.disciplinaNome || r.disciplina || '',
-            r.disciplinaSigla || '',
-            (r.status || 'confirmado').toUpperCase(),
-            (r.recursos || r.recursosExtras || []).join(', '),
-            r.observacoes || '',
-            r.recorrente ? 'Sim' : 'Não'
-        ]);
-    });
-
-    return aoa;
 }
 
 /**
- * Exporta para arquivo Excel (.xlsx) nativo utilizando SheetJS
+ * Dispara o download do arquivo Excel (.xlsx) com fallback por Blob
  */
-function exportViaSheetJS({ fileName, gridAOA, listAOA, mode, labsCount }) {
-    const XLSX = window.XLSX;
-    const wb = XLSX.utils.book_new();
-
-    // 1. Aba: Grade do Calendário (Matriz)
-    const wsGrid = XLSX.utils.aoa_to_sheet(gridAOA);
-    // Configura largura das colunas
-    wsGrid['!cols'] = [
-        { wch: 26 }, // Coluna de Horário/Aula
-        ...Array(labsCount).fill({ wch: 34 }) // Colunas de cada Laboratório
-    ];
-    XLSX.utils.book_append_sheet(wb, wsGrid, 'Grade_Calendario');
-
-    // 2. Aba: Listagem Geral de Reservas (apenas se com reservas)
-    if (mode === 'com-reservas') {
-        const wsList = XLSX.utils.aoa_to_sheet(listAOA);
-        wsList['!cols'] = [
-            { wch: 12 }, // Data
-            { wch: 14 }, // Dia
-            { wch: 10 }, // Turno
-            { wch: 16 }, // Aulas
-            { wch: 22 }, // Lab
-            { wch: 25 }, // Professor
-            { wch: 25 }, // Curso
-            { wch: 25 }, // Turma
-            { wch: 25 }, // Disciplina
-            { wch: 10 }, // Sigla
-            { wch: 14 }, // Status
-            { wch: 20 }, // Recursos
-            { wch: 30 }, // Observações
-            { wch: 12 }  // Recorrente
-        ];
-        XLSX.utils.book_append_sheet(wb, wsList, 'Lista_Agendamentos');
+function triggerExcelDownload(XLSX, wb, fileName) {
+    try {
+        XLSX.writeFile(wb, fileName);
+    } catch (writeErr) {
+        console.warn('XLSX.writeFile direto falhou, usando download por Blob:', writeErr);
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
-
-    XLSX.writeFile(wb, fileName);
 }
 
 /**
@@ -460,7 +664,6 @@ function exportViaCSV({ fileName, aoaData }) {
         }).join(';');
     }).join('\r\n');
 
-    // Adiciona UTF-8 BOM (\uFEFF) para garantir acentos corretos no Excel brasileiro
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);

@@ -10,7 +10,7 @@ import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
 import { initExportService } from './export-service.js';
 import { getReservasProfessor, getReservas, getReservasSemana, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
 import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
-import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader } from './ui-helpers.js';
+import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader, syncBodyScrollLock } from './ui-helpers.js';
 import { SCHEDULE_CONFIG, STATUS_CONFIG, getAulaLabel } from './schedule-config.js';
 import { formatDateBR, escapeHTML } from './utils.js';
 
@@ -30,6 +30,9 @@ let currentView = 'calendario';
  * Navega para uma view
  */
 function navigateTo(view) {
+    // Garante que a rolagem da página esteja normal e sincronizada ao trocar de tela
+    syncBodyScrollLock();
+
     // Esconde todas as views
     Object.values(VIEWS).forEach(id => {
         const el = document.getElementById(id);
@@ -400,16 +403,16 @@ async function showReservaDetails(reservaId) {
 
                     <div class="border-t border-gray-100 pt-3 flex flex-wrap gap-2">
                         ${isAdmin() && r.status === 'pendente' ? `
-                        <button onclick="window.dispatchEvent(new CustomEvent('approve-reserva', {detail: '${r.id}'})); document.getElementById('reserva-detail-modal').classList.add('hidden');" 
+                        <button onclick="window.dispatchEvent(new CustomEvent('approve-reserva', {detail: '${r.id}'})); closeModal('reserva-detail-modal');" 
                             class="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
                             ✓ Aprovar
                         </button>
-                        <button onclick="window.dispatchEvent(new CustomEvent('reject-reserva', {detail: '${r.id}'})); document.getElementById('reserva-detail-modal').classList.add('hidden');" 
+                        <button onclick="window.dispatchEvent(new CustomEvent('reject-reserva', {detail: '${r.id}'})); closeModal('reserva-detail-modal');" 
                             class="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors">
                             ✕ Rejeitar
                         </button>` : ''}
                         ${r.status === 'pendente' || isAdmin() ? `
-                        <button onclick="window.dispatchEvent(new CustomEvent('cancel-reserva', {detail: '${r.id}'})); document.getElementById('reserva-detail-modal').classList.add('hidden');" 
+                        <button onclick="window.dispatchEvent(new CustomEvent('cancel-reserva', {detail: '${r.id}'})); closeModal('reserva-detail-modal');" 
                             class="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
                             🗑️ Cancelar Reserva
                         </button>` : ''}
@@ -431,11 +434,13 @@ async function showReservaDetails(reservaId) {
 function showApp() {
     document.getElementById('login-screen')?.classList.add('hidden');
     document.getElementById('app-screen')?.classList.remove('hidden');
+    syncBodyScrollLock();
 }
 
 function showLogin() {
     document.getElementById('login-screen')?.classList.remove('hidden');
     document.getElementById('app-screen')?.classList.add('hidden');
+    syncBodyScrollLock();
 }
 
 // ============================================================
@@ -479,10 +484,7 @@ function setupSheetsConfigUI() {
             if (bannerIcon) bannerIcon.textContent = '🟡';
         }
 
-        if (modal) {
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
+        openModal('sheets-config-modal');
     };
 
     document.getElementById('open-sheets-config-header')?.addEventListener('click', openConfigModal);
@@ -498,11 +500,7 @@ function setupSheetsConfigUI() {
         setCustomSheetApiUrl(val);
         updateHeaderBadge();
 
-        const modal = document.getElementById('sheets-config-modal');
-        if (modal) {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }
+        closeModal('sheets-config-modal');
 
         showToast(val ? 'URL da API salva com sucesso!' : 'Modo local ativado.', 'success');
         refreshCalendar();
@@ -540,7 +538,11 @@ function setupSheetsConfigUI() {
     updateHeaderBadge();
 }
 
+let appInitialized = false;
 async function initApp() {
+    if (appInitialized) return;
+    appInitialized = true;
+
     console.log('🚀 Inicializando Espaço ETEC - Reserva de Laboratórios (Google Sheets)...');
 
     setupLoginForm();

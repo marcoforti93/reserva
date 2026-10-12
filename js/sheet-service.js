@@ -7,7 +7,7 @@
 import { getSheetApiUrl, isApiConfigured } from './sheet-config.js';
 import { hasAulaConflict, formatDateISO, getRecurringDates } from './utils.js';
 import { showToast } from './ui-helpers.js';
-import { getDisciplinaSigla } from './schedule-config.js';
+import { getDisciplinaSigla, getCursoSigla } from './schedule-config.js';
 
 // ============================================================
 // NORMALIZAÇÃO DE DADOS
@@ -119,7 +119,7 @@ function normalizeReserva(r) {
 // CACHE EM MEMÓRIA E LOCALSTORAGE (STALE-WHILE-REVALIDATE)
 // ============================================================
 
-const CACHE_STORAGE_KEY = 'reserva_sheets_cache_v3';
+const CACHE_STORAGE_KEY = 'reserva_sheets_cache_v4';
 let initialFetchPromise = null;
 const listeners = new Set();
 
@@ -131,6 +131,8 @@ let memoryCache = {
     turmas: [],
     disciplinas: [],
     reservas: [],
+    atribuicoes: [],
+    usuarios: [],
     lastFetchTime: 0
 };
 
@@ -146,6 +148,8 @@ try {
                 turmas: parsed.turmas || [],
                 disciplinas: parsed.disciplinas || [],
                 reservas: (parsed.reservas || []).map(normalizeReserva),
+                atribuicoes: parsed.atribuicoes || [],
+                usuarios: parsed.usuarios || [],
                 lastFetchTime: parsed.lastFetchTime || 0
             };
         }
@@ -211,6 +215,70 @@ async function apiPost(action, payload = {}) {
 // ============================================================
 
 /**
+ * Mescla dados remotos da planilha com dados locais de forma resiliente,
+ * garantindo que itens recém-cadastrados ou importados localmente NUNCA sejam
+ * apagados caso o Google Sheets ainda não os tenha retornado.
+ */
+function mergeEntities(remoteList = [], localList = [], keyField = 'nome', extraFields = []) {
+    const normalize = str => String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const hasAccent = s => s && /[áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑºª]/.test(String(s));
+    const map = new Map();
+
+    // 1. Base com dados retornados pelo Google Sheets
+    (remoteList || []).forEach(item => {
+        if (!item) return;
+        const normKey = normalize(item[keyField]);
+        const key = item.id || normKey;
+        map.set(key, { ...item });
+        if (normKey) {
+            map.set(normKey, { ...item });
+        }
+    });
+
+    // 2. Mescla itens do cache local (preserva itens criados localmente e reativações)
+    (localList || []).forEach(localItem => {
+        if (!localItem) return;
+        const nameKey = normalize(localItem[keyField]);
+        const idKey = localItem.id;
+        const existing = (idKey && map.get(idKey)) || (nameKey ? map.get(nameKey) : null);
+
+        if (existing) {
+            // Se local está explicitamente ativo, mantém ativo
+            if (localItem.ativo === true && existing.ativo === false) {
+                existing.ativo = true;
+            }
+            // Se o item local tem acentuação correta e o remoto não, preserva o nome acentuado
+            if (hasAccent(localItem[keyField]) && !hasAccent(existing[keyField])) {
+                existing[keyField] = localItem[keyField];
+            }
+            // Preserva campos preenchidos localmente caso estejam vazios no remoto
+            extraFields.forEach(field => {
+                if (localItem[field] && !existing[field]) {
+                    existing[field] = localItem[field];
+                }
+            });
+        } else {
+            // Item novo criado localmente que ainda não está no Sheets: PRESERVA!
+            map.set(idKey || nameKey, { ...localItem });
+        }
+    });
+
+    // 3. Deduplica e retorna array limpo
+    const unique = [];
+    const seen = new Set();
+    for (const item of map.values()) {
+        const id = item.id || normalize(item[keyField]);
+        const normKey = normalize(item[keyField]);
+        if (!seen.has(id) && (!normKey || !seen.has(normKey))) {
+            seen.add(id);
+            if (normKey) seen.add(normKey);
+            unique.push(item);
+        }
+    }
+    return unique;
+}
+
+/**
  * Carrega todos os dados da planilha em uma ÚNICA requisição (getInitialData)
  */
 export async function fetchInitialData(forceRefresh = false) {
@@ -231,13 +299,36 @@ export async function fetchInitialData(forceRefresh = false) {
         try {
             const res = await apiGet('getInitialData');
             if (res.data) {
+                const mergedProfs = mergeEntities(res.data.professores, memoryCache.professores, 'nome', ['disciplinas', 'email', 'ativo']);
+                const mergedCursos = mergeEntities(res.data.cursos, memoryCache.cursos, 'nome', ['sigla', 'periodo', 'ativo']);
+                const mergedTurmas = mergeEntities(res.data.turmas, memoryCache.turmas, 'nome', ['turno', 'ativo']);
+                const mergedDiscs = mergeEntities(res.data.disciplinas, memoryCache.disciplinas, 'nome', ['sigla', 'ativo']);
+                const mergedLabs = mergeEntities(res.data.laboratorios, memoryCache.laboratorios, 'nome', ['capacidade', 'descricao', 'recursos', 'ativo']);
+
+                // Reservas: mescla por ID preservando qualquer reserva local recente
+                const resMap = new Map();
+                (res.data.reservas || []).map(normalizeReserva).forEach(r => { if (r && r.id) resMap.set(String(r.id), r); });
+                (memoryCache.reservas || []).forEach(r => {
+                    if (r && r.id && !resMap.has(String(r.id))) {
+                        resMap.set(String(r.id), r);
+                    }
+                });
+                const mergedReservas = Array.from(resMap.values());
+
+                // Atribuições: preserva atribuições locais caso a planilha não tenha retornado a aba ainda
+                let mergedAtribuicoes = memoryCache.atribuicoes || [];
+                if (Array.isArray(res.data.atribuicoes) && res.data.atribuicoes.length > 0) {
+                    mergedAtribuicoes = res.data.atribuicoes;
+                }
+
                 memoryCache = {
-                    laboratorios: res.data.laboratorios || [],
-                    professores: res.data.professores || [],
-                    cursos: res.data.cursos || [],
-                    turmas: res.data.turmas || [],
-                    disciplinas: res.data.disciplinas || [],
-                    reservas: (res.data.reservas || []).map(normalizeReserva),
+                    laboratorios: mergedLabs,
+                    professores: mergedProfs,
+                    cursos: mergedCursos,
+                    turmas: mergedTurmas,
+                    disciplinas: mergedDiscs,
+                    reservas: mergedReservas,
+                    atribuicoes: mergedAtribuicoes,
                     lastFetchTime: Date.now()
                 };
                 persistCache();
@@ -865,4 +956,399 @@ export function onReservasChange(datesISO, callback) {
         listeners.delete(listener);
         clearInterval(timerId);
     };
+}
+
+// ============================================================
+// [ATUALIZAÇÃO] OPÇÕES DO FORMULÁRIO FILTRADAS POR PROFESSOR (aba 'atribuicoes')
+// ============================================================
+
+const OPCOES_CACHE_PREFIX = 'reserva_opcoes_form_v1:';
+
+/**
+ * Busca no backend as opções de Curso/Turma/Disciplina permitidas ao usuário.
+ * - Admin  -> { restrito: false, ... } (sem filtros)
+ * - Professor -> { restrito: true, atribuicoes: [{curso, turma, disciplina, sigla}] }
+ *
+ * Usa cache local por usuário (abertura instantânea / offline). Para professores,
+ * em caso de falha sem cache, retorna lista VAZIA (nunca libera disciplinas alheias).
+ *
+ * @param {object} profile - perfil do usuário logado (getUserProfile())
+ * @returns {Promise<object|null>} null quando a API não está configurada (modo demo)
+ */
+export async function getOpcoesFormulario(profile) {
+    if (!profile || !isApiConfigured()) return null;
+
+    const cacheKey = OPCOES_CACHE_PREFIX + String(profile.email || profile.id).toLowerCase();
+
+    try {
+        const res = await apiGet('getOpcoesFormulario', {
+            email: profile.email || '',
+            userId: profile.id || ''
+        });
+        localStorage.setItem(cacheKey, JSON.stringify(res));
+        return res;
+    } catch (err) {
+        console.warn('Erro ao buscar atribuições da API, verificando cache local:', err);
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) return JSON.parse(cached);
+        } catch (e) { /* ignora cache corrompido */ }
+
+        // Fallback resiliente usando as atribuições salvas em memória/local
+        if (profile.perfil !== 'admin' && memoryCache.atribuicoes && memoryCache.atribuicoes.length > 0) {
+            const pNome = String(profile.nome || '').toLowerCase().trim();
+            const pEmail = String(profile.email || '').toLowerCase().trim();
+            const profAtribs = memoryCache.atribuicoes.filter(a => {
+                const aProf = String(a.professor || '').toLowerCase().trim();
+                return aProf === pNome || (pEmail && aProf === pEmail);
+            });
+
+            if (profAtribs.length > 0) {
+                const cursos = [...new Set(profAtribs.map(a => a.curso).filter(Boolean))].sort();
+                const turmas = [...new Set(profAtribs.map(a => a.turma).filter(Boolean))].sort();
+                const discMap = {};
+                profAtribs.forEach(a => { if (a.disciplina) discMap[a.disciplina] = a.sigla || ''; });
+                const disciplinas = Object.keys(discMap).sort().map(d => ({ nome: d, sigla: discMap[d] }));
+
+                const localFallback = {
+                    success: true,
+                    perfil: 'professor',
+                    restrito: true,
+                    professor: profile.nome || profile.email,
+                    cursos,
+                    turmas,
+                    disciplinas,
+                    atribuicoes: profAtribs
+                };
+                try { localStorage.setItem(cacheKey, JSON.stringify(localFallback)); } catch (e) {}
+                return localFallback;
+            }
+        }
+
+        // Fail-closed: professor sem dados não enxerga disciplinas alheias
+        if (profile.perfil !== 'admin') {
+            return { success: false, restrito: true, cursos: [], turmas: [], disciplinas: [], atribuicoes: [] };
+        }
+        return null;
+    }
+}
+
+/**
+ * Retorna a lista de todas as atribuições cadastradas
+ */
+export async function getAtribuicoesList() {
+    if (memoryCache.atribuicoes.length === 0 && isApiConfigured()) {
+        try {
+            const res = await apiGet('getAtribuicoes');
+            if (res && res.data) {
+                memoryCache.atribuicoes = res.data;
+                persistCache();
+            }
+        } catch (e) {
+            console.warn('Falha ao buscar atribuicoes da API:', e);
+        }
+    }
+    return memoryCache.atribuicoes || [];
+}
+
+/**
+ * Importa atribuições de aula e opcionalmente sincroniza os cadastros mestres
+ * 
+ * @param {Array<object>} items - [{ Professor, Curso, Turma, Disciplina, Sigla }]
+ * @param {object} options - { overwrite: boolean, autoSyncCadastros: boolean }
+ */
+export async function importAtribuicoes(items, options = {}) {
+    const overwrite = options.overwrite !== false;
+    const autoSyncCadastros = options.autoSyncCadastros !== false;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        throw new Error('Nenhuma atribuição válida informada.');
+    }
+
+    // Normalização local
+    const normalizedItems = items.map(it => ({
+        professor: String(it.Professor || it.professor || it.Docente || it.docente || '').trim(),
+        curso: String(it.Curso || it.curso || '').trim(),
+        turma: String(it.Turma || it.turma || '').trim(),
+        disciplina: String(it.Disciplina || it.disciplina || it.Componente || it.componente || '').trim(),
+        sigla: String(it.Sigla || it.sigla || it['C. Curric.'] || it['C.Curric.'] || '').trim()
+    })).filter(it => it.professor && it.disciplina);
+
+    let novosProfsCount = 0;
+    let novosCursosCount = 0;
+    let novasTurmasCount = 0;
+    let novasDisciplinasCount = 0;
+
+    // Atualização local de memória
+    if (overwrite) {
+        memoryCache.atribuicoes = normalizedItems;
+    } else {
+        const existingKeys = new Set(memoryCache.atribuicoes.map(a => 
+            [a.professor, a.curso, a.turma, a.disciplina, a.sigla].map(s => s.toLowerCase()).join('|')
+        ));
+        normalizedItems.forEach(it => {
+            const k = [it.professor, it.curso, it.turma, it.disciplina, it.sigla].map(s => s.toLowerCase()).join('|');
+            if (!existingKeys.has(k)) {
+                memoryCache.atribuicoes.push(it);
+                existingKeys.add(k);
+            }
+        });
+    }
+
+    if (autoSyncCadastros) {
+        const now = new Date().toISOString();
+
+        // Mapeia disciplinas lecionadas por professor
+        const profDiscsMap = {};
+        // Mapeia turno predominante da turma
+        const turmaTurnoMap = {};
+
+        normalizedItems.forEach(it => {
+            if (it.professor && it.sigla) {
+                if (!profDiscsMap[it.professor]) profDiscsMap[it.professor] = new Set();
+                profDiscsMap[it.professor].add(it.sigla);
+            }
+            if (it.turma) {
+                const cLower = (it.curso || '').toLowerCase();
+                const isNoturno = cLower.includes(' n ') || cLower.includes('(noturno)') || cLower.includes(' n') || cLower.endsWith(' n');
+                if (isNoturno) turmaTurnoMap[it.turma] = 'Noite';
+                else if (it.turma.toLowerCase() === 'int') turmaTurnoMap[it.turma] = 'Integral';
+                else if (!turmaTurnoMap[it.turma]) turmaTurnoMap[it.turma] = 'Tarde';
+            }
+        });
+
+        const normStr = str => String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        const hasAccent = s => s && /[áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑºª]/.test(String(s));
+
+        // 1. Professores
+        const uniqueProfs = [...new Set(normalizedItems.map(it => it.professor).filter(Boolean))];
+        uniqueProfs.forEach(pName => {
+            const discStr = profDiscsMap[pName] ? [...profDiscsMap[pName]].join(', ') : '';
+            const existingProf = memoryCache.professores.find(p => normStr(p.nome) === normStr(pName));
+
+            if (!existingProf) {
+                memoryCache.professores.push({
+                    id: 'prf_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+                    nome: pName,
+                    email: '',
+                    disciplinas: discStr,
+                    ativo: true,
+                    criadoEm: now
+                });
+                novosProfsCount++;
+            } else {
+                existingProf.ativo = true;
+                if (hasAccent(pName) && !hasAccent(existingProf.nome)) existingProf.nome = pName;
+                if (discStr) existingProf.disciplinas = discStr;
+            }
+        });
+
+        // 2. Cursos
+        const uniqueCursos = [...new Set(normalizedItems.map(it => it.curso).filter(Boolean))];
+        uniqueCursos.forEach(cName => {
+            const cSigla = getCursoSigla(cName);
+            const cPeriodo = (cName.toLowerCase().includes(' n ') || cName.toLowerCase().includes('(noturno)')) ? 'Noite' : 'Diurno / Integral';
+            const existingCurso = memoryCache.cursos.find(c => normStr(c.nome) === normStr(cName));
+
+            if (!existingCurso) {
+                memoryCache.cursos.push({
+                    id: 'cur_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+                    nome: cName,
+                    sigla: cSigla,
+                    periodo: cPeriodo,
+                    ativo: true,
+                    criadoEm: now
+                });
+                novosCursosCount++;
+            } else {
+                existingCurso.ativo = true;
+                if (hasAccent(cName) && !hasAccent(existingCurso.nome)) existingCurso.nome = cName;
+                if (cSigla) existingCurso.sigla = cSigla;
+                if (cPeriodo && !existingCurso.periodo) existingCurso.periodo = cPeriodo;
+            }
+        });
+
+        // 3. Turmas
+        const uniqueTurmas = [...new Set(normalizedItems.map(it => it.turma).filter(Boolean))];
+        uniqueTurmas.forEach(tName => {
+            const tTurno = turmaTurnoMap[tName] || 'Integral';
+            const existingTurma = memoryCache.turmas.find(t => normStr(t.nome) === normStr(tName));
+
+            if (!existingTurma) {
+                memoryCache.turmas.push({
+                    id: 'tur_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+                    nome: tName,
+                    turno: tTurno,
+                    ativo: true,
+                    criadoEm: now
+                });
+                novasTurmasCount++;
+            } else {
+                existingTurma.ativo = true;
+                if (tTurno) existingTurma.turno = tTurno;
+            }
+        });
+
+        // 4. Disciplinas
+        const discMap = {};
+        normalizedItems.forEach(it => {
+            if (it.disciplina && !discMap[it.disciplina]) discMap[it.disciplina] = it.sigla;
+        });
+        Object.keys(discMap).forEach(dName => {
+            const dSigla = discMap[dName] || '';
+            const existingDisc = memoryCache.disciplinas.find(d => normStr(d.nome) === normStr(dName));
+
+            if (!existingDisc) {
+                memoryCache.disciplinas.push({
+                    id: 'dis_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+                    nome: dName,
+                    sigla: dSigla,
+                    ativo: true,
+                    criadoEm: now
+                });
+                novasDisciplinasCount++;
+            } else {
+                existingDisc.ativo = true;
+                if (hasAccent(dName) && !hasAccent(existingDisc.nome)) existingDisc.nome = dName;
+                if (dSigla) existingDisc.sigla = dSigla;
+            }
+        });
+    }
+
+    persistCache();
+    notifyListeners();
+
+    // Limpa cache de opções de professores no localStorage para atualização imediata
+    try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(OPCOES_CACHE_PREFIX)) {
+                localStorage.removeItem(key);
+            }
+        }
+    } catch (e) { }
+
+    let apiResult = null;
+    if (isApiConfigured()) {
+        try {
+            apiResult = await apiPost('importAtribuicoes', { items: normalizedItems, options });
+        } catch (err) {
+            console.warn('Aviso: endpoint importAtribuicoes falhou ou o script do Google Sheets precisa ser atualizado. Executando fallback seguro:', err);
+            // Fallback de sincronização para garantir que os cadastros mestres fiquem salvos no Google Sheets
+            if (autoSyncCadastros) {
+                try {
+                    const profItems = memoryCache.professores.map(p => ({
+                        nome: p.nome,
+                        email: p.email || '',
+                        disciplinas: p.disciplinas || ''
+                    }));
+                    if (profItems.length > 0) {
+                        await apiPost('seedItems', { table: 'professores', items: profItems, keyField: 'nome' }).catch(() => {});
+                    }
+
+                    const cursoItems = memoryCache.cursos.map(c => ({
+                        nome: c.nome,
+                        sigla: c.sigla || '',
+                        periodo: c.periodo || ''
+                    }));
+                    if (cursoItems.length > 0) {
+                        await apiPost('seedItems', { table: 'cursos', items: cursoItems, keyField: 'nome' }).catch(() => {});
+                    }
+
+                    const turmaItems = memoryCache.turmas.map(t => ({
+                        nome: t.nome,
+                        turno: t.turno || ''
+                    }));
+                    if (turmaItems.length > 0) {
+                        await apiPost('seedItems', { table: 'turmas', items: turmaItems, keyField: 'nome' }).catch(() => {});
+                    }
+
+                    const discItems = memoryCache.disciplinas.map(d => ({
+                        nome: d.nome,
+                        sigla: d.sigla || ''
+                    }));
+                    if (discItems.length > 0) {
+                        await apiPost('seedItems', { table: 'disciplinas', items: discItems, keyField: 'nome' }).catch(() => {});
+                    }
+                } catch (fallbackErr) {
+                    console.error('Falha no fallback de sincronização com Google Sheets:', fallbackErr);
+                }
+            }
+        }
+
+        // Atualiza mantendo todas as entidades protegidas contra sobreposição
+        await fetchInitialData(true);
+    }
+
+    return apiResult || {
+        success: true,
+        totalImportadas: normalizedItems.length,
+        novosProfessores: novosProfsCount,
+        novosCursos: novosCursosCount,
+        novasTurmas: novasTurmasCount,
+        novasDisciplinas: novasDisciplinasCount
+    };
+}
+
+// ============================================================
+// USUÁRIOS
+// ============================================================
+
+export async function getUsuarios() {
+    if (isApiConfigured()) {
+        try {
+            const res = await apiGet('getItems', { table: 'usuarios' });
+            if (res && Array.isArray(res.data)) {
+                const safeUsers = res.data.map(u => {
+                    const { senha: _, ...safe } = u;
+                    return safe;
+                });
+                memoryCache.usuarios = safeUsers;
+                persistCache();
+                return safeUsers;
+            }
+        } catch (e) {
+            console.warn('Falha ao carregar usuários da API do Google Sheets:', e);
+        }
+    }
+
+    if (!memoryCache.usuarios || memoryCache.usuarios.length === 0) {
+        memoryCache.usuarios = [
+            { id: 'usr_admin', email: 'admin@escola.edu.br', nome: 'Administrador TI / Coordenação', perfil: 'admin', criadoEm: '2026-09-27' },
+            { id: 'usr_prof_demo', email: 'professor@escola.edu.br', nome: 'Professor Demonstração', perfil: 'professor', criadoEm: '2026-09-27' }
+        ];
+    }
+    return memoryCache.usuarios;
+}
+
+export async function updateUsuario(id, data) {
+    if (isApiConfigured()) {
+        try {
+            await apiPost('updateItem', { table: 'usuarios', id, data });
+        } catch (e) {
+            console.warn('Erro ao atualizar usuário via API:', e);
+            throw e;
+        }
+    }
+    const idx = (memoryCache.usuarios || []).findIndex(u => u.id === id);
+    if (idx !== -1) {
+        const { senha: _, ...safeData } = data;
+        Object.assign(memoryCache.usuarios[idx], safeData);
+        persistCache();
+    }
+    showToast('Usuário atualizado com sucesso!', 'success');
+}
+
+export async function deleteUsuario(id) {
+    if (isApiConfigured()) {
+        try {
+            await apiPost('deleteItem', { table: 'usuarios', id, softDelete: false });
+        } catch (e) {
+            console.warn('Erro ao excluir usuário via API:', e);
+            throw e;
+        }
+    }
+    memoryCache.usuarios = (memoryCache.usuarios || []).filter(u => u.id !== id);
+    persistCache();
+    showToast('Usuário removido com sucesso!', 'info');
 }

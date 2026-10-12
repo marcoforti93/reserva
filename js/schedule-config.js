@@ -260,8 +260,103 @@ export const DISCIPLINAS_SIGLAS_MAP = {
     'Contabilidade Geral': 'CG',
     'Qualidade e Teste de Software': 'QTS',
     'Sistemas Embarcados': 'SE',
-    'Programação e Algoritmos': 'PA'
+    'Sistemas Embarcados e IoT': 'SEI',
+    'Programação e Algoritmos': 'PAL',
+    'Tecnologia da Informação': 'TI',
+    'Projetos de Tecnologia de Informação e Comunicação': 'PTIC',
+    'Internet, Protocolos e Segurança de Sistemas da Informação': 'IPSSI',
+    'Planejamento e Desenvolvimento do Trabalho de Conclusão de Curso (TCC) em Desenvolvimento de Sistemas': 'PDTCC',
+    'Aplicativos Informatizados': 'AI'
 };
+
+/**
+ * Mapeamento dos nomes resumidos/abreviados para disciplinas com nomes extensos
+ */
+export const DISCIPLINAS_NOMES_CURTOS_MAP = {
+    'Planejamento e Desenvolvimento do Trabalho de Conclusão de Curso (TCC) em Desenvolvimento de Sistemas': 'Planejamento e Desenv. TCC',
+    'Planejamento e Desenvolvimento do Trabalho de Conclusão de Curso (TCC)': 'Planejamento e Desenv. TCC',
+    'Planejamento e Desenvolvimento do TCC': 'Planejamento do TCC',
+    'Internet, Protocolos e Segurança de Sistemas da Informação': 'Internet e Seg. da Informação',
+    'Projetos de Tecnologia de Informação e Comunicação': 'Projetos de TIC',
+    'Programação de Aplicativos Mobile I': 'Prog. Aplicativos Mobile I',
+    'Programação de Aplicativos Mobile II': 'Prog. Aplicativos Mobile II',
+    'Programação Web e Mobile': 'Prog. Web e Mobile',
+    'Ética e Cidadania Organizacional': 'Ética e Cidadania Org.',
+    'Interface Web e Acessibilidade': 'Interface Web e Acessibilidade',
+    'Lógica de Programação e Algoritmos': 'Lógica de Programação',
+    'Língua Portuguesa e Comunicação': 'Língua Portuguesa',
+    'Inteligência Artificial Aplicada': 'IA Aplicada',
+    'Qualidade e Teste de Software': 'Qualidade e Teste Softw.',
+    'Sistemas Embarcados e IoT': 'Sistemas Embarcados (IoT)',
+    'Análise e Projeto de Sistemas': 'Análise e Proj. Sistemas',
+    'Técnicas de Programação I': 'Técnicas de Prog. I',
+    'Técnicas de Programação II': 'Técnicas de Prog. II',
+    'Técnicas de Programação': 'Técnicas de Prog.'
+};
+
+/**
+ * Retorna o nome abreviado/resumido da disciplina para exibição compacta
+ * Ex: "Planejamento e Desenvolvimento do Trabalho de Conclusão de Curso (TCC) em Desenvolvimento de Sistemas" -> "Planejamento e Desenv. TCC"
+ */
+export function formatShortDisciplinaNome(nome) {
+    if (!nome) return '';
+    const clean = String(nome).trim();
+
+    // 1. Mapeamento direto ou case-insensitive
+    if (DISCIPLINAS_NOMES_CURTOS_MAP[clean]) {
+        return DISCIPLINAS_NOMES_CURTOS_MAP[clean];
+    }
+    const foundKey = Object.keys(DISCIPLINAS_NOMES_CURTOS_MAP).find(k => k.toLowerCase() === clean.toLowerCase());
+    if (foundKey) {
+        return DISCIPLINAS_NOMES_CURTOS_MAP[foundKey];
+    }
+
+    // 2. Se já tem tamanho razoável (até 28 caracteres), retorna limpo
+    if (clean.length <= 28) {
+        return clean;
+    }
+
+    // 3. Aplica abreviações comuns de palavras longas
+    let short = clean
+        .replace(/\bDesenvolvimento\b/gi, 'Desenv.')
+        .replace(/\bProgramação\b/gi, 'Prog.')
+        .replace(/\bInformação\b/gi, 'Inform.')
+        .replace(/\bInformações\b/gi, 'Inform.')
+        .replace(/\bOrganizacional\b/gi, 'Org.')
+        .replace(/\bAplicativos\b/gi, 'Aplic.')
+        .replace(/\bTecnologia\b/gi, 'Tecnol.')
+        .replace(/\bTecnologias\b/gi, 'Tecnol.')
+        .replace(/\bAdministração\b/gi, 'Admin.')
+        .replace(/\bInstrumental\b/gi, 'Instr.')
+        .replace(/\bInteligência Artificial\b/gi, 'IA')
+        .replace(/\bTrabalho de Conclusão de Curso\b/gi, 'TCC')
+        .replace(/\bComunicação\b/gi, 'Comun.')
+        .replace(/\bFundamentos\b/gi, 'Fund.');
+
+    // 4. Se ainda ultrapassar 34 caracteres, trunca suavemente
+    if (short.length > 34) {
+        short = short.substring(0, 31).trim() + '...';
+    }
+
+    return short;
+}
+
+/**
+ * Formata o label da disciplina para exibição em selects (ex: "PDTCC — Planejamento e Desenv. TCC")
+ */
+export function formatDisciplinaSelectLabel(nome, sigla = null) {
+    if (!nome) return '';
+    const s = getDisciplinaSigla(nome, sigla);
+    const shortNome = formatShortDisciplinaNome(nome);
+
+    if (s && shortNome) {
+        if (s.toLowerCase() === shortNome.toLowerCase()) {
+            return s;
+        }
+        return `${s} — ${shortNome}`;
+    }
+    return s || shortNome || nome;
+}
 
 /**
  * Retorna a sigla de uma disciplina a partir do nome ou sigla explícita
@@ -298,9 +393,91 @@ export function getDisciplinaSigla(nome, sigla = null) {
     // 4. Se não encontrar, tenta gerar acrônimo a partir das iniciais relevantes
     const stopwords = ['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com'];
     const words = clean.split(/\s+/).filter(w => !stopwords.includes(w.toLowerCase()));
-    if (words.length >= 2 && words.length <= 4) {
-        return words.map(w => w[0].toUpperCase()).join('');
+    if (words.length >= 2) {
+        return words.map(w => w[0].toUpperCase()).join('').substring(0, 8);
     }
 
     return clean;
+}
+
+/**
+ * Retorna a sigla de um curso (ex: "MTec N Desenvolvimento de Sistemas" -> "M-DS (N)")
+ */
+export function getCursoSigla(nome, sigla = null) {
+    if (sigla && typeof sigla === 'string' && sigla.trim()) {
+        return sigla.trim();
+    }
+    if (!nome) return '';
+
+    // Se já tiver parênteses com sigla curta, ex: "Desenvolvimento de Sistemas (DS)"
+    const match = nome.match(/\(([^)]+)\)/);
+    if (match && match[1].trim().length <= 8) {
+        return match[1].trim();
+    }
+
+    const clean = String(nome).trim();
+    const lower = clean.toLowerCase();
+    const unaccented = clean.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const isNoturno = lower.includes(' n ') || lower.includes('(noturno)') || lower.includes(' n') || lower.endsWith(' n') || lower.startsWith('noturno') || unaccented.endsWith(' n');
+
+    if (unaccented.includes('desenvolvimento de sistemas') || unaccented.includes('desenvolvimento sistemas')) {
+        return isNoturno ? 'M-DS (N)' : 'M-DS';
+    }
+    if (unaccented.includes('nutricao')) {
+        return isNoturno ? 'M-NUT (N)' : 'M-NUT';
+    }
+    if (unaccented.includes('administracao')) {
+        return isNoturno ? 'M-ADM (N)' : 'M-ADM';
+    }
+    if (unaccented.includes('mecanica')) {
+        return isNoturno ? 'M-MEC (N)' : 'M-MEC';
+    }
+    if (unaccented.includes('informatica para internet') || unaccented.includes('informatica internet')) {
+        return isNoturno ? 'M-INFO (N)' : 'M-INFO';
+    }
+    if (unaccented.includes('logistica')) {
+        return isNoturno ? 'M-LOG (N)' : 'M-LOG';
+    }
+    if (unaccented.includes('recursos humanos')) {
+        return isNoturno ? 'M-RH (N)' : 'M-RH';
+    }
+    if (unaccented.includes('contabilidade')) {
+        return isNoturno ? 'M-CONT (N)' : 'M-CONT';
+    }
+    if (unaccented.includes('enfermagem')) {
+        return isNoturno ? 'ENF (N)' : 'ENF';
+    }
+
+    if (clean.length <= 7) return clean;
+
+    const stopwords = ['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com', 'mtec', 'm-tec'];
+    const words = clean.split(/\s+/).filter(w => !stopwords.includes(w.toLowerCase()));
+    const acr = words.map(w => w[0].toUpperCase()).join('').substring(0, 6);
+    return isNoturno ? `${acr} (N)` : acr;
+}
+
+/**
+ * Abrevia o nome do professor para exibição ultracompacta no card
+ * Ex: "JOSE EDUARDO BARBOSA" -> "José Barbosa"
+ * Ex: "MARCO AURELIO FORTI" -> "Marco Forti"
+ * Ex: "SIMONE MONTANHA ANDALAFT" -> "Simone Andalaft"
+ * Ex: "JOSE RAFAEL FRANCO" -> "José Franco"
+ */
+export function formatShortProfessorName(fullName) {
+    if (!fullName) return '—';
+    const clean = String(fullName).trim();
+    if (!clean) return '—';
+
+    // Remove prefixos
+    const semPrefixo = clean.replace(/^(prof\.|profª\.|professor|professora)\s+/i, '').trim();
+    const parts = semPrefixo.split(/\s+/).filter(Boolean);
+
+    const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+
+    if (parts.length === 1) return cap(parts[0]);
+
+    const first = cap(parts[0]);
+    const last = cap(parts[parts.length - 1]);
+
+    return `${first} ${last}`;
 }
