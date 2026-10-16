@@ -1,9 +1,9 @@
 // ============================================================
 // auth.js
-// Gerenciamento de autenticação via Planilha Google Sheets e Sessão Local
+// Gerenciamento de autenticação via Supabase (PostgreSQL) e Sessão Local
 // ============================================================
 
-import { getSheetApiUrl, isApiConfigured } from './sheet-config.js';
+import { getSupabaseClient, isSupabaseConfigured } from './supabase-config.js';
 import { showToast, showLoader } from './ui-helpers.js';
 
 /**
@@ -55,7 +55,7 @@ export function waitForAuth() {
 }
 
 /**
- * Faz login com email e senha
+ * Faz login com email e senha no Supabase
  * @param {string} email
  * @param {string} password
  */
@@ -69,8 +69,8 @@ export async function login(email, password) {
 
         let userData = null;
 
-        // Se a API da planilha ainda não foi configurada, usa contas de demonstração local
-        if (!isApiConfigured()) {
+        // Se o Supabase ainda não foi configurado, usa contas de demonstração local
+        if (!isSupabaseConfigured()) {
             const cleanEmail = email.toLowerCase().trim();
             if (cleanEmail === 'admin@escola.edu.br' || cleanEmail.includes('admin')) {
                 userData = {
@@ -90,29 +90,34 @@ export async function login(email, password) {
                 };
             }
         } else {
-            // Chamada à API da Planilha
-            const url = getSheetApiUrl();
-            const response = await fetch(url, {
-                method: 'POST',
-                redirect: 'follow',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                    action: 'login',
-                    email: email,
-                    senha: password
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Erro na conexão com o servidor (${response.status}).`);
+            // Autenticação direta contra a tabela usuarios no Supabase
+            const client = getSupabaseClient();
+            if (!client) {
+                throw new Error('Falha ao inicializar o cliente do Supabase.');
             }
 
-            const res = await response.json();
-            if (!res.success) {
-                throw new Error(res.error || 'Credenciais inválidas.');
+            const { data, error } = await client
+                .from('usuarios')
+                .select('id, email, senha, nome, perfil, professor_id')
+                .ilike('email', email.trim())
+                .eq('senha', password)
+                .maybeSingle();
+
+            if (error) {
+                throw new Error(`Erro no banco Supabase: ${error.message}`);
             }
 
-            userData = res.user;
+            if (!data) {
+                throw new Error('Credenciais inválidas. Verifique o email e senha informados.');
+            }
+
+            userData = {
+                id: data.id,
+                email: data.email,
+                nome: data.nome,
+                perfil: data.perfil,
+                professorId: data.professor_id || null
+            };
         }
 
         // Configura a sessão
@@ -153,6 +158,12 @@ export async function logout() {
         currentUserProfile = null;
         localStorage.removeItem(STORAGE_KEY_USER);
 
+        // Se houver sessão no Supabase Auth, efetua signOut
+        const client = getSupabaseClient();
+        if (client?.auth) {
+            await client.auth.signOut().catch(() => {});
+        }
+
         showToast('Logout realizado.', 'info');
         if (onLogoutListener) {
             onLogoutListener();
@@ -164,42 +175,52 @@ export async function logout() {
 }
 
 /**
- * Registra um novo usuário na planilha
+ * Registra um novo usuário no banco Supabase
  * @param {string} email
  * @param {string} password
  * @param {object} profileData - { nome, perfil, professorId }
  */
 export async function registerUser(email, password, profileData) {
     try {
-        showLoader(true, 'Criando usuário...');
+        showLoader(true, 'Criando usuário no Supabase...');
 
-        if (!isApiConfigured()) {
+        if (!isSupabaseConfigured()) {
             showToast('Usuário cadastrado no modo local!', 'success');
             return { uid: 'usr_' + Date.now(), email };
         }
 
-        const url = getSheetApiUrl();
-        const response = await fetch(url, {
-            method: 'POST',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-                action: 'registerUser',
-                email: email,
-                senha: password,
-                nome: profileData.nome || '',
-                perfil: profileData.perfil || 'professor',
-                professorId: profileData.professorId || ''
-            })
-        });
+        const client = getSupabaseClient();
+        if (!client) throw new Error('Cliente Supabase indisponível.');
 
-        const res = await response.json();
-        if (!res.success) {
-            throw new Error(res.error || 'Erro ao cadastrar usuário na planilha.');
+        const cleanEmail = email.trim().toLowerCase();
+
+        // Verifica duplicidade
+        const { data: existing } = await client
+            .from('usuarios')
+            .select('id')
+            .eq('email', cleanEmail)
+            .maybeSingle();
+
+        if (existing) {
+            throw new Error('Este email já está cadastrado.');
         }
 
-        showToast('Usuário criado com sucesso na planilha!', 'success');
-        return { uid: res.user.id, email: res.user.email };
+        const newUser = {
+            id: 'usr_' + Date.now().toString(36),
+            email: cleanEmail,
+            senha: password,
+            nome: profileData.nome || cleanEmail.split('@')[0],
+            perfil: profileData.perfil || 'professor',
+            professor_id: profileData.professorId || ''
+        };
+
+        const { error } = await client.from('usuarios').insert([newUser]);
+        if (error) {
+            throw new Error('Erro ao salvar usuário no Supabase: ' + error.message);
+        }
+
+        showToast('Usuário criado com sucesso no Supabase!', 'success');
+        return { uid: newUser.id, email: newUser.email };
 
     } catch (error) {
         console.error('Erro ao registrar:', error);

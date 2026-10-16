@@ -9,7 +9,7 @@ import { initReservationForm, openReservationForm, updateFormRoleVisibility } fr
 import { initAdminPanel, setupAdminEventListeners } from './admin-panel.js';
 import { initExportService } from './export-service.js';
 import { getReservasProfessor, getReservas, getReservasSemana, deleteReserva, updateReservaStatus, getReservaById } from './sheet-service.js';
-import { getSheetApiUrl, setCustomSheetApiUrl, isApiConfigured } from './sheet-config.js';
+import { getSupabaseUrl, getSupabaseAnonKey, setSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase-config.js';
 import { showToast, showConfirm, openModal, closeModal, createStatusBadge, showLoader, syncBodyScrollLock } from './ui-helpers.js';
 import { SCHEDULE_CONFIG, STATUS_CONFIG, getAulaLabel } from './schedule-config.js';
 import { formatDateBR, escapeHTML } from './utils.js';
@@ -444,92 +444,98 @@ function showLogin() {
 }
 
 // ============================================================
-// CONFIGURAÇÃO DA PLANILHA GOOGLE SHEETS (UI)
+// CONFIGURAÇÃO DO BANCO DE DADOS SUPABASE (UI)
 // ============================================================
 
-function setupSheetsConfigUI() {
+function setupSupabaseConfigUI() {
     const updateHeaderBadge = () => {
-        const configured = isApiConfigured();
-        const dot = document.getElementById('sheets-status-dot');
-        const text = document.getElementById('sheets-status-text');
+        const configured = isSupabaseConfigured();
+        const dot = document.getElementById('supabase-status-dot');
+        const text = document.getElementById('supabase-status-text');
         if (dot) {
             dot.className = `w-2 h-2 rounded-full ${configured ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`;
         }
         if (text) {
-            text.textContent = configured ? 'Google Sheets' : 'Modo Local';
+            text.textContent = configured ? '⚡ Supabase' : 'Modo Local';
         }
     };
 
     const openConfigModal = () => {
         if (!isAdmin()) {
-            showToast('Apenas administradores podem configurar a URL da planilha.', 'warning');
+            showToast('Apenas administradores podem configurar o banco de dados.', 'warning');
             return;
         }
 
-        const modal = document.getElementById('sheets-config-modal');
-        const input = document.getElementById('sheets-api-url-input');
-        const bannerTitle = document.getElementById('sheets-banner-title');
-        const bannerDesc = document.getElementById('sheets-banner-desc');
-        const bannerIcon = document.getElementById('sheets-banner-icon');
+        const urlInput = document.getElementById('supabase-url-input');
+        const keyInput = document.getElementById('supabase-key-input');
+        const bannerTitle = document.getElementById('supabase-banner-title');
+        const bannerDesc = document.getElementById('supabase-banner-desc');
+        const bannerIcon = document.getElementById('supabase-banner-icon');
 
-        if (input) input.value = getSheetApiUrl();
+        if (urlInput) urlInput.value = getSupabaseUrl();
+        if (keyInput) keyInput.value = getSupabaseAnonKey();
 
-        if (isApiConfigured()) {
-            if (bannerTitle) bannerTitle.textContent = '🟢 Conectado ao Google Sheets';
-            if (bannerDesc) bannerDesc.textContent = 'Suas reservas e cadastros estão sendo gravados e lidos diretamente na planilha online.';
+        if (isSupabaseConfigured()) {
+            if (bannerTitle) bannerTitle.textContent = '🟢 Conectado ao Supabase (PostgreSQL)';
+            if (bannerDesc) bannerDesc.textContent = 'Suas reservas, laboratórios e cadastros estão sincronizados em tempo real na nuvem.';
             if (bannerIcon) bannerIcon.textContent = '🟢';
         } else {
             if (bannerTitle) bannerTitle.textContent = '🟡 Modo Local (Demonstração)';
-            if (bannerDesc) bannerDesc.textContent = 'O sistema está gravando localmente no navegador. Cole a URL da API do Google Apps Script abaixo para salvar na nuvem.';
+            if (bannerDesc) bannerDesc.textContent = 'O sistema está gravando localmente no navegador. Informe a URL do Projeto e a Anon Key do Supabase abaixo para salvar na nuvem.';
             if (bannerIcon) bannerIcon.textContent = '🟡';
         }
 
-        openModal('sheets-config-modal');
+        openModal('supabase-config-modal');
     };
 
-    document.getElementById('open-sheets-config-header')?.addEventListener('click', openConfigModal);
+    document.getElementById('open-supabase-config-header')?.addEventListener('click', openConfigModal);
 
-    document.getElementById('sheets-save-btn')?.addEventListener('click', () => {
+    document.getElementById('supabase-save-btn')?.addEventListener('click', () => {
         if (!isAdmin()) {
-            showToast('Apenas administradores podem configurar a URL da planilha.', 'warning');
+            showToast('Apenas administradores podem configurar o banco de dados.', 'warning');
             return;
         }
 
-        const input = document.getElementById('sheets-api-url-input');
-        const val = input ? input.value.trim() : '';
-        setCustomSheetApiUrl(val);
+        const urlInput = document.getElementById('supabase-url-input');
+        const keyInput = document.getElementById('supabase-key-input');
+        const urlVal = urlInput ? urlInput.value.trim() : '';
+        const keyVal = keyInput ? keyInput.value.trim() : '';
+
+        setSupabaseConfig(urlVal, keyVal);
         updateHeaderBadge();
 
-        closeModal('sheets-config-modal');
+        closeModal('supabase-config-modal');
 
-        showToast(val ? 'URL da API salva com sucesso!' : 'Modo local ativado.', 'success');
+        showToast(urlVal && keyVal ? 'Configuração do Supabase salva com sucesso!' : 'Modo local ativado.', 'success');
         refreshCalendar();
     });
 
-    document.getElementById('sheets-test-btn')?.addEventListener('click', async () => {
+    document.getElementById('supabase-test-btn')?.addEventListener('click', async () => {
         if (!isAdmin()) {
-            showToast('Apenas administradores podem testar a conexão com a planilha.', 'warning');
+            showToast('Apenas administradores podem testar a conexão.', 'warning');
             return;
         }
 
-        const input = document.getElementById('sheets-api-url-input');
-        const val = input ? input.value.trim() : '';
-        if (!val) {
-            showToast('Informe a URL da API antes de testar.', 'warning');
+        const urlInput = document.getElementById('supabase-url-input');
+        const keyInput = document.getElementById('supabase-key-input');
+        const urlVal = urlInput ? urlInput.value.trim() : '';
+        const keyVal = keyInput ? keyInput.value.trim() : '';
+
+        if (!urlVal || !keyVal) {
+            showToast('Informe a URL do Projeto e a Anon Key antes de testar.', 'warning');
             return;
         }
 
-        showLoader(true, 'Testando conexão com a planilha...');
+        showLoader(true, 'Testando conexão com Supabase...');
         try {
-            const res = await fetch(`${val}?action=ping`, { method: 'GET', redirect: 'follow' });
-            const data = await res.json();
-            if (data && data.success) {
-                showToast('✅ Conexão com o Google Sheets estabelecida com sucesso!', 'success', 5000);
+            const res = await testSupabaseConnection(urlVal, keyVal);
+            if (res.success) {
+                showToast('✅ Conexão com o Supabase estabelecida com sucesso! Banco PostgreSQL ativo.', 'success', 5000);
             } else {
-                throw new Error(data.error || 'Resposta inválida.');
+                throw new Error(res.error || 'Falha ao conectar com o Supabase.');
             }
         } catch (err) {
-            showToast('❌ Falha ao conectar: verifique a URL e se a implantação está acessível a "Qualquer pessoa".', 'error', 6000);
+            showToast(`❌ ${err.message || 'Falha ao conectar com Supabase.'}`, 'error', 6000);
         } finally {
             showLoader(false);
         }
@@ -543,13 +549,13 @@ async function initApp() {
     if (appInitialized) return;
     appInitialized = true;
 
-    console.log('🚀 Inicializando Espaço ETEC - Reserva de Laboratórios (Google Sheets)...');
+    console.log('🚀 Inicializando Espaço ETEC - Reserva de Laboratórios (Supabase)...');
 
     setupLoginForm();
     setupRouter();
     setupGlobalEvents();
     setupAdminEventListeners();
-    setupSheetsConfigUI();
+    setupSupabaseConfigUI();
     initExportService();
 
     initAuthObserver(
@@ -559,15 +565,15 @@ async function initApp() {
             showApp();
             updateUserUI();
 
-            // Mostra/esconde tab admin, botão de configuração do Sheets e botões de criação
+            // Mostra/esconde tab admin, botão de configuração do Supabase e botões de criação
             const admin = isAdmin();
             const adminTab = document.getElementById('nav-admin');
             if (adminTab) {
                 adminTab.classList.toggle('hidden', !admin);
             }
-            const sheetsHeaderBtn = document.getElementById('open-sheets-config-header');
-            if (sheetsHeaderBtn) {
-                sheetsHeaderBtn.classList.toggle('hidden', !admin);
+            const supabaseHeaderBtn = document.getElementById('open-supabase-config-header');
+            if (supabaseHeaderBtn) {
+                supabaseHeaderBtn.classList.toggle('hidden', !admin);
             }
             
             // Botões de exportação de planilha (apenas admin)
