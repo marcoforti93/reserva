@@ -37,6 +37,16 @@
         }
     </script>
 
+    <!-- Supabase JS Client v2 (Banco de Dados PostgreSQL + Realtime) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        if (typeof window.supabase === 'undefined') {
+            const sbFb = document.createElement('script');
+            sbFb.src = 'https://unpkg.com/@supabase/supabase-js@2';
+            document.head.appendChild(sbFb);
+        }
+    </script>
+
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/custom.css">
 
@@ -174,12 +184,12 @@
 
                     <!-- Right: New Reserva + User -->
                     <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                        <!-- Google Sheets Status / Config Button (visível apenas para admin) -->
-                        <button id="open-sheets-config-header" type="button"
+                        <!-- Supabase Status / Config Button (visível apenas para admin) -->
+                        <button id="open-supabase-config-header" type="button"
                             class="hidden flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all border border-white/10"
-                            title="Status e Configuração da Planilha Google Sheets">
-                            <span id="sheets-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-                            <span id="sheets-status-text" class="text-xs">Google Sheets</span>
+                            title="Status e Configuração do Banco de Dados Supabase (PostgreSQL)">
+                            <span id="supabase-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                            <span id="supabase-status-text" class="text-xs">Supabase</span>
                         </button>
 
                         <!-- Nova Reserva Button (desktop) -->
@@ -764,24 +774,24 @@
         </div>
     </div>
 
-    <!-- MODAL: Google Sheets API Config -->
-    <div id="sheets-config-modal" class="hidden fixed inset-0 z-[70] items-center justify-center p-4">
+    <!-- MODAL: Supabase Database Config -->
+    <div id="supabase-config-modal" class="hidden fixed inset-0 z-[70] items-center justify-center p-4">
         <div class="absolute inset-0 modal-backdrop"
-            onclick="closeModal('sheets-config-modal')">
+            onclick="closeModal('supabase-config-modal')">
         </div>
         <div
             class="modal-content relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto z-10 animate-scaleUp">
             <div
-                class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
+                class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
-                    <span class="text-2xl">📊</span>
+                    <span class="text-2xl">⚡</span>
                     <div>
-                        <h3 class="text-base font-bold">Conexão com Google Sheets</h3>
-                        <p class="text-xs text-emerald-100">Banco de dados em planilha online</p>
+                        <h3 class="text-base font-bold">Banco de Dados Supabase</h3>
+                        <p class="text-xs text-emerald-100">PostgreSQL com Sincronização em Tempo Real</p>
                     </div>
                 </div>
                 <button type="button"
-                    onclick="closeModal('sheets-config-modal')"
+                    onclick="closeModal('supabase-config-modal')"
                     class="p-1.5 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -791,36 +801,43 @@
             </div>
 
             <div class="p-6 space-y-4">
-                <div id="sheets-status-banner"
+                <div id="supabase-status-banner"
                     class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-xs flex items-start gap-2.5">
-                    <span id="sheets-banner-icon" class="text-base">🟡</span>
+                    <span id="supabase-banner-icon" class="text-base">🟡</span>
                     <div class="flex-1">
-                        <strong id="sheets-banner-title" class="font-semibold block text-gray-800">Modo Local
-                            (Demonstração)</strong>
-                        <p id="sheets-banner-desc" class="text-gray-600 mt-0.5 leading-relaxed">Os dados estão sendo
-                            salvos temporariamente no seu navegador. Para sincronizar em tempo real com o Google Drive,
-                            insira a URL da API gerada pelo Google Apps Script.</p>
+                        <strong id="supabase-banner-title" class="font-semibold block text-gray-800">Modo Local (Demonstração)</strong>
+                        <p id="supabase-banner-desc" class="text-gray-600 mt-0.5 leading-relaxed">O sistema está operando localmente no navegador. Para conectar ao banco na nuvem e habilitar tempo real, informe as credenciais do seu projeto Supabase abaixo.</p>
                     </div>
                 </div>
 
                 <div>
-                    <label for="sheets-api-url-input"
+                    <label for="supabase-url-input"
                         class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                        URL do App da Web (Google Apps Script)
+                        URL do Projeto (Project URL)
                     </label>
-                    <input type="url" id="sheets-api-url-input"
-                        placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                    <input type="url" id="supabase-url-input"
+                        placeholder="https://xyzcompany.supabase.co"
                         class="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all">
-                    <p class="text-[11px] text-gray-400 mt-1">A URL deve terminar com <code
-                            class="bg-gray-100 px-1 py-0.5 rounded text-gray-700">/exec</code></p>
+                    <p class="text-[11px] text-gray-400 mt-1">Encontrada em: <em>Project Settings > API > Project URL</em></p>
+                </div>
+
+                <div>
+                    <label for="supabase-key-input"
+                        class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                        Chave Pública da API (Project API Key / Anon Key)
+                    </label>
+                    <input type="password" id="supabase-key-input"
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all">
+                    <p class="text-[11px] text-gray-400 mt-1">Chave pública segura para frontend (Project Settings > API > Project API Keys > anon/public)</p>
                 </div>
 
                 <div class="flex flex-wrap gap-2 pt-2">
-                    <button type="button" id="sheets-test-btn"
+                    <button type="button" id="supabase-test-btn"
                         class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-1.5">
                         <span>⚡</span> Testar Conexão
                     </button>
-                    <button type="button" id="sheets-save-btn"
+                    <button type="button" id="supabase-save-btn"
                         class="flex-1 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-sm">
                         <span>💾</span> Salvar e Conectar
                     </button>
@@ -828,17 +845,11 @@
 
                 <div class="border-t border-gray-100 pt-3">
                     <details class="text-xs text-gray-500 cursor-pointer">
-                        <summary class="font-semibold text-emerald-700 hover:underline">📖 Como gerar a URL no Google
-                            Sheets? (3 passos)</summary>
+                        <summary class="font-semibold text-emerald-700 hover:underline">📖 Como configurar o Supabase em 3 minutos?</summary>
                         <ol class="list-decimal pl-5 mt-2 space-y-1.5 text-gray-600 leading-relaxed">
-                            <li>Crie uma nova planilha no seu Google Drive (ou use o atalho <a href="https://sheets.new"
-                                    target="_blank" class="text-indigo-600 underline">sheets.new</a>).</li>
-                            <li>Acesse <strong>Extensões > Apps Script</strong>, apague tudo e cole o conteúdo do
-                                arquivo <code
-                                    class="bg-gray-100 px-1 py-0.5 rounded text-gray-800">google-apps-script/Codigo.gs</code>.
-                            </li>
-                            <li>Clique em <strong>Implantar > Nova Implantação > App da Web</strong>, configure acesso
-                                como <strong>Qualquer Pessoa</strong> (Anyone) e copie a URL gerada!</li>
+                            <li>Crie sua conta e projeto gratuito em <a href="https://supabase.com" target="_blank" class="text-emerald-700 font-bold underline">supabase.com</a>.</li>
+                            <li>No menu lateral, abra o <strong>SQL Editor</strong>, crie uma <em>New query</em>, cole o arquivo <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-800">supabase/schema.sql</code> e clique em <strong>Run</strong>.</li>
+                            <li>Vá em <strong>Settings > API</strong>, copie a <em>Project URL</em> e a chave <em>anon/public</em> e cole nos campos acima!</li>
                         </ol>
                     </details>
                 </div>
